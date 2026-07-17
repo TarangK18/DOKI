@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DOKI — Factory Automation Simulators</title>
+<style>
+  :root{ --bg:#0d1117; --panel:#161d26; --ink:#e9eef4; --muted:#8fa0b0; --line:#2a3440;
+         --green:#3fbf7f; --blue:#4a90d9; --amber:#e8b339; }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:'Segoe UI',system-ui,sans-serif;
+       display:flex;flex-direction:column;align-items:center;padding:60px 20px;min-height:100vh;}
+  h1{font-size:30px;margin:0 0 6px;letter-spacing:1px;}
+  p.lead{color:var(--muted);max-width:560px;text-align:center;margin:0 0 44px;font-size:15px;line-height:1.5;}
+  .cards{display:flex;gap:22px;flex-wrap:wrap;justify-content:center;max-width:920px;}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:26px 28px;width:340px;
+        display:flex;flex-direction:column;text-decoration:none;color:inherit;transition:transform .15s, border-color .15s;}
+  .card:hover{transform:translateY(-3px);border-color:var(--blue);}
+  .tag{display:inline-block;font-size:11px;letter-spacing:1.5px;font-weight:700;padding:3px 9px;border-radius:5px;
+       margin-bottom:14px;width:fit-content;}
+  .tag.mc{background:#173325;color:var(--green);} .tag.s1{background:#241d33;color:#9b7ede;}
+  .card h2{font-size:19px;margin:0 0 8px;}
+  .card p{color:var(--muted);font-size:13.5px;line-height:1.5;margin:0 0 18px;flex:1;}
+  .go{font-size:13px;font-weight:700;color:var(--blue);}
+  footer{margin-top:60px;color:#5b6a79;font-size:12px;text-align:center;max-width:600px;}
+</style>
+</head>
+<body>
+<h1>DOKI Factory Automation</h1>
+<p class="lead">Operator-panel simulators for the two stations being automated on the production line. These define the intended UX for the real firmware — click through a batch on either station.</p>
+
+<div class="cards">
+  <a class="card" href="mincecraft/">
+    <span class="tag mc">WEIGHING STATION</span>
+    <h2>MINCECRAFT</h2>
+    <p>Guided ingredient weighing. Operator selects the base meat and product, and the station walks them through adding each ingredient to the correct weight before sending the batch on to mixing.</p>
+    <span class="go">Open simulator →</span>
+  </a>
+  <a class="card" href="schedule1/">
+    <span class="tag s1">MIXING STATION</span>
+    <h2>Schedule 1</h2>
+    <p>Dough mixer auto-shutoff timer with WiFi logging. Preset mix/rest times per meat type, manual override, hardwired E-stop and AUTO/BYPASS safety selector.</p>
+    <span class="go">Open simulator →</span>
+  </a>
+</div>
+
+<footer>These are interactive UX references, not the production firmware. Recipes, tolerances, and timings shown are placeholders.</footer>
+</body>
+</html>

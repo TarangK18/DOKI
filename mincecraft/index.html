@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MINCECRAFT — Panel Simulator v3.1</title>
+<style>
+:root{
+  --bg:#0d1117; --bezel:#22282f; --screen:#101820; --ink:#e9eef4; --muted:#8fa0b0;
+  --blue:#4a90d9; --green:#3fbf7f; --amber:#e8b339; --red:#e05d5d; --purple:#9b7ede;
+  --line:#2a3440; --steel:#3a4552; --steel2:#57646f;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;user-select:none;}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:'Segoe UI',system-ui,sans-serif;
+     display:flex;flex-direction:column;align-items:center;padding:16px 8px 40px;}
+h1{font-size:20px;margin:0 0 2px;letter-spacing:1px;}
+h1 small{color:var(--muted);font-weight:400;font-size:12px;margin-left:8px;}
+.sub{color:var(--muted);font-size:12px;margin-bottom:14px;text-align:center;}
+
+#stage{display:flex;gap:18px;align-items:stretch;max-width:1280px;}
+
+/* ================= pantry ================= */
+#pantry{width:300px;background:#141a21;border:1px solid var(--line);border-radius:14px;padding:12px;display:flex;flex-direction:column;}
+#pantry h3{font-size:11px;letter-spacing:2px;color:var(--muted);margin:6px 4px 8px;text-transform:uppercase;}
+.shelf{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding-bottom:10px;border-bottom:2px solid #2b333d;margin-bottom:4px;}
+.item{position:relative;background:#1c242e;border:2px solid #2c3742;border-radius:10px;padding:7px 4px 5px;
+      text-align:center;cursor:pointer;touch-action:none;transition:transform .08s, box-shadow .15s, filter .2s;}
+.item .lbl{font-size:11px;font-weight:700;margin-top:3px;}
+.item .subw{font-size:10px;color:var(--muted);}
+/* ingredient beaker */
+.beaker{position:relative;width:44px;height:52px;margin:0 auto;}
+.beaker .lid{position:absolute;top:0;left:7px;right:7px;height:8px;background:linear-gradient(180deg,#9aa6b2,#6b7682);border-radius:3px;z-index:2;}
+.beaker .bod{position:absolute;top:8px;left:2px;right:2px;bottom:0;background:rgba(210,225,240,.07);
+      border:2px solid rgba(190,210,230,.4);border-radius:4px 4px 9px 9px;overflow:hidden;}
+.beaker .bfill{position:absolute;bottom:0;left:0;right:0;height:64%;opacity:.9;}
+.beaker .logo{position:absolute;top:14px;left:0;right:0;text-align:center;font-size:19px;z-index:1;
+      filter:drop-shadow(0 1px 2px rgba(0,0,0,.55));}
+/* meat tray */
+.tray{position:relative;width:58px;height:46px;margin:0 auto;}
+.tray .meat{position:absolute;top:-3px;left:0;right:0;text-align:center;font-size:25px;z-index:1;}
+.tray .ttub{position:absolute;bottom:0;left:0;right:0;height:24px;border-radius:2px 2px 5px 5px;
+      background:linear-gradient(180deg,#cfd8e2 0%,#8d99a6 30%,#5d6874 100%);clip-path:polygon(0 0,100% 0,91% 100%,9% 100%);}
+.item.disabled{filter:grayscale(1) brightness(.55);cursor:not-allowed;}
+.item.done{filter:grayscale(.6) brightness(.75);}
+.item.done::after{content:'✓';position:absolute;top:-7px;right:-5px;background:var(--green);color:#06281a;
+      width:18px;height:18px;border-radius:50%;font-size:12px;font-weight:900;line-height:18px;}
+.item.used{filter:grayscale(1) brightness(.5);cursor:not-allowed;}
+.item.used::after{content:'ON SCALE';position:absolute;top:22px;left:8px;right:8px;font-size:8px;color:var(--amber);
+      font-weight:700;background:rgba(13,17,23,.85);border-radius:4px;padding:2px 0;}
+.item.active{border-color:var(--green);box-shadow:0 0 14px rgba(63,191,127,.55);animation:pulse 1.2s infinite;}
+.item.active::before{content:'▼';position:absolute;top:-20px;left:50%;transform:translateX(-50%);
+      color:var(--green);font-size:14px;animation:bob .7s infinite alternate;}
+.item.pouring{transform:rotate(-14deg) translateY(-3px);}
+@keyframes pulse{0%,100%{box-shadow:0 0 8px rgba(63,191,127,.35)}50%{box-shadow:0 0 18px rgba(63,191,127,.75)}}
+@keyframes bob{from{transform:translateX(-50%) translateY(0)}to{transform:translateX(-50%) translateY(5px)}}
+.item.shake{animation:shake .3s;}
+@keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-5px)}75%{transform:translateX(5px)}}
+#hint{margin-top:auto;font-size:11.5px;color:var(--amber);background:#241f12;border-radius:8px;padding:8px 10px;min-height:34px;}
+
+/* ================= scale scene ================= */
+#scaleArea{width:250px;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;position:relative;}
+#stream{position:absolute;width:6px;bottom:262px;height:118px;left:50%;transform:translateX(-50%);display:none;z-index:3;
+        background:repeating-linear-gradient(180deg,#d8c9a3 0 6px,transparent 6px 12px);animation:fall .25s linear infinite;border-radius:3px;}
+@keyframes fall{from{background-position-y:0}to{background-position-y:12px}}
+#bowlWrap{position:relative;width:214px;height:124px;margin-bottom:-6px;z-index:2;transition:transform .25s, opacity .25s;}
+#bowlWrap.lifted{transform:translate(-120px,-60px) rotate(-6deg);opacity:.85;}
+/* cuboid SS tub: dark top opening + tapered steel front face */
+#bowl{position:absolute;bottom:0;left:2px;right:2px;height:96px;}
+#bowl::before{content:'';position:absolute;top:-24px;left:10px;right:10px;height:26px;z-index:0;
+      background:linear-gradient(180deg,#151a20,#232b33);clip-path:polygon(7% 0,93% 0,100% 100%,0 100%);
+      border-radius:2px;}
+#bowl::after{content:'';position:absolute;inset:0;z-index:1;border-radius:3px;
+      background:linear-gradient(180deg,#c3cdd8 0%,#95a1ae 6%,#7b8794 14%,#5d6874 60%,#49525c 100%);
+      clip-path:polygon(0 0,100% 0,93% 100%,7% 100%);}
+#fill{position:absolute;top:-20px;left:30px;right:30px;height:16px;z-index:2;
+      background:linear-gradient(180deg,#c08373,#a76b5b);clip-path:polygon(4% 0,96% 0,100% 100%,0 100%);
+      opacity:0;transition:opacity .2s;border-radius:2px;}
+#bowlWrap.dropOk #bowl::after{filter:brightness(1.22);}
+#bowlWrap.dropOk{filter:drop-shadow(0 0 14px rgba(63,191,127,.65));}
+#platform{width:210px;height:14px;background:linear-gradient(180deg,var(--steel2),var(--steel));border-radius:4px;z-index:1;}
+#scaleBody{width:150px;height:84px;background:linear-gradient(180deg,#333d48,#242c35);border:2px solid #1a2027;
+           border-radius:8px;margin-top:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;}
+#lcd{background:#0a1a10;border:2px solid #131a15;border-radius:5px;color:#54f08c;font-family:Consolas,monospace;
+     font-size:22px;font-weight:700;padding:2px 10px;min-width:118px;text-align:right;font-variant-numeric:tabular-nums;}
+#lcd small{font-size:11px;color:#3fa065;}
+#scaleBody .brand{font-size:8.5px;letter-spacing:2px;color:#7c8894;}
+#scaleTools{display:flex;gap:8px;margin-top:12px;}
+.tool{border:0;border-radius:8px;padding:8px 10px;font-size:12px;font-weight:600;cursor:pointer;color:#dfe6ee;background:#2a3340;}
+.tool:active{filter:brightness(1.35);}
+.tool:disabled{opacity:.35;cursor:default;}
+#legs{display:flex;gap:90px;} .leg{width:14px;height:10px;background:#1c232b;border-radius:0 0 4px 4px;}
+
+/* ================= GUI screen ================= */
+#bezel{background:var(--bezel);border-radius:16px;padding:12px;box-shadow:0 12px 40px rgba(0,0,0,.6);align-self:center;}
+#screen{width:480px;height:540px;background:var(--screen);border-radius:8px;border:1px solid #000;
+        position:relative;overflow:hidden;display:flex;flex-direction:column;}
+#statusbar{display:flex;justify-content:space-between;align-items:center;padding:6px 12px;
+           background:#0b1016;border-bottom:1px solid var(--line);font-size:11px;color:var(--muted);}
+#statusbar .name{color:var(--ink);font-weight:700;letter-spacing:2px;}
+#statusbar .wifi{color:var(--green);}
+#main{flex:1;display:flex;flex-direction:column;padding:12px 14px;overflow:hidden;}
+
+.btn{border:0;border-radius:9px;padding:12px 14px;font-size:14px;font-weight:600;cursor:pointer;
+     color:#fff;background:#2c3a4a;transition:filter .1s;}
+.btn:active{filter:brightness(1.3);}
+.btn.primary{background:var(--blue);} .btn.good{background:var(--green);color:#06281a;}
+.btn.warn{background:var(--amber);color:#332600;} .btn.danger{background:var(--red);}
+.btn.ghost{background:transparent;border:1px solid var(--line);color:var(--muted);}
+.btn:disabled{opacity:.35;cursor:default;}
+.row{display:flex;gap:8px;} .grow{flex:1;}
+
+.liveWt{font-size:46px;font-weight:800;text-align:center;font-variant-numeric:tabular-nums;}
+.liveWt small{font-size:18px;color:var(--muted);font-weight:600;}
+.stab{display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--red);margin-right:6px;vertical-align:middle;}
+.stab.on{background:var(--green);}
+.prompt{color:var(--muted);text-align:center;font-size:14px;margin:4px 0 10px;}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:8px;}
+.grid .btn{padding:16px 8px;font-size:15px;}
+.crumb{font-size:11.5px;color:var(--muted);margin-bottom:6px;}
+.crumb b{color:var(--ink);}
+
+table.recipe{border-collapse:collapse;width:100%;font-size:12.5px;margin-top:4px;}
+table.recipe th,table.recipe td{border-bottom:1px solid var(--line);padding:5px 6px;text-align:left;font-variant-numeric:tabular-nums;}
+table.recipe th{color:var(--muted);font-weight:600;font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;}
+table.recipe td.num{text-align:right;}
+.dev-ok{color:var(--green);} .dev-bad{color:var(--red);}
+
+.stepHead{display:flex;justify-content:space-between;align-items:baseline;}
+.stepHead .n{color:var(--muted);font-size:11.5px;}
+.ingName{font-size:24px;font-weight:800;margin:1px 0 2px;}
+.targetLine{color:var(--muted);font-size:13px;margin-bottom:6px;}
+.bigAdd{font-size:42px;font-weight:800;text-align:center;font-variant-numeric:tabular-nums;line-height:1;}
+.bigAdd small{font-size:16px;color:var(--muted);}
+#bar{height:36px;background:#1b2530;border-radius:8px;position:relative;overflow:hidden;margin:10px 0 5px;}
+#barFill{height:100%;width:0%;background:var(--blue);transition:width .12s linear;}
+#tolBand{position:absolute;top:0;height:100%;background:rgba(63,191,127,.25);border-left:2px solid var(--green);border-right:2px solid var(--green);}
+#guide{text-align:center;font-size:17px;font-weight:700;min-height:24px;}
+.g-under{color:var(--blue);} .g-ok{color:var(--green);} .g-over{color:var(--red);}
+.stars{font-size:34px;text-align:center;letter-spacing:6px;margin:2px 0 6px;}
+.stars .dim{opacity:.22;}
+
+.overlay{position:absolute;inset:0;background:rgba(8,11,15,.88);display:flex;align-items:center;justify-content:center;z-index:10;}
+.card{background:#161e27;border:1px solid var(--line);border-radius:12px;padding:20px 22px;width:400px;max-width:94%;}
+.card h3{margin:0 0 8px;font-size:18px;} .card p{color:var(--muted);margin:0 0 14px;font-size:13px;}
+.card.alarm{border-color:var(--red);} .card.alarm h3{color:var(--red);}
+.card.warn{border-color:var(--amber);} .card.warn h3{color:var(--amber);}
+.pin{letter-spacing:8px;font-size:24px;text-align:center;background:#0b1016;border:1px solid var(--line);
+     border-radius:8px;padding:6px;margin-bottom:10px;min-height:40px;}
+.pinpad{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;}
+.pinpad .btn{padding:10px;font-size:17px;}
+footer{color:#5b6a79;font-size:11.5px;margin-top:14px;max-width:1100px;text-align:center;}
+@media (max-width:1150px){ #stage{flex-wrap:wrap;justify-content:center;} }
+</style>
+</head>
+<body>
+<h1>MINCECRAFT<small>panel simulator v3.1 — UX reference for firmware</small></h1>
+<div class="sub">Click a meat tray to place it in the tub; press &amp; HOLD a beaker to pour it. Follow the screen. Supervisor PIN: 1234 · recipes are placeholders</div>
+
+<div id="stage">
+  <div id="pantry">
+    <h3>Bases (cold room)</h3>
+    <div class="shelf" id="baseShelf"></div>
+    <h3>Ingredients</h3>
+    <div class="shelf" id="ingShelf"></div>
+    <div id="hint"></div>
+  </div>
+
+  <div id="scaleArea">
+    <div id="stream"></div>
+    <div id="bowlWrap"><div id="bowl"><div id="fill"></div></div></div>
+    <div id="platform"></div>
+    <div id="scaleBody">
+      <div id="lcd">0<small> g</small></div>
+      <div class="brand">MINCECRAFT · 50 kg × 5 g</div>
+    </div>
+    <div id="legs"><div class="leg"></div><div class="leg"></div></div>
+    <div id="scaleTools">
+      <button class="tool" id="liftBtn">🖐 Lift container</button>
+      <button class="tool" id="scoopBtn">🥄 Scoop out (hold)</button>
+    </div>
+  </div>
+
+  <div id="bezel">
+    <div id="screen">
+      <div id="statusbar">
+        <span class="name">MINCECRAFT</span>
+        <span id="sbInfo"></span>
+        <span class="wifi">WiFi ● LOG ●</span>
+      </div>
+      <div id="main"></div>
+      <div id="overlayHost"></div>
+    </div>
+  </div>
+</div>
+
+<footer>Single-scale cumulative model: base + all ingredients go into one tub. The system zero-references automatically at each ingredient step. Pouring speeds up the longer you hold — tap gently near the target. Auto-advance fires when the amount is in tolerance and stable for 2&nbsp;s. After batch complete, the tub moves on to the Schedule&nbsp;1 mixing station.</footer>
+
+<script>
+/* ================= placeholder data ================= */
+const MEATS = [
+  {id:'chicken', name:'Chicken', icon:'🍗', min:2800, max:4200},
+  {id:'pork',    name:'Pork',    icon:'🐖', min:3500, max:5500},
+  {id:'beef',    name:'Beef',    icon:'🥩', min:2200, max:4800},
+  {id:'mutton',  name:'Mutton',  icon:'🐑', min:1800, max:3200},
+  {id:'fish',    name:'Fish',    icon:'🐟', min:1500, max:2800},
+];
+const JARS = [
+  {key:'Binder (starch)',      icon:'🌾', lbl:'Binder',      c:'#d8c9a3'},
+  {key:'Masala spice mix',     icon:'🌶️', lbl:'Masala',      c:'#c04a2b'},
+  {key:'Black pepper mix',     icon:'🫚', lbl:'Pepper',      c:'#3c3a36'},
+  {key:'Classic spice mix',    icon:'🧉', lbl:'Classic mix', c:'#8a5a2b'},
+  {key:'Schezwan paste',       icon:'🥫', lbl:'Schezwan',    c:'#b3271e'},
+  {key:'Salt',                 icon:'🧂', lbl:'Salt',        c:'#e8ecf0'},
+  {key:'Ice water',            icon:'🧊', lbl:'Ice water',   c:'#9fd8f0'},
+  {key:'Oil',                  icon:'🫒', lbl:'Oil',         c:'#d9b544'},
+  {key:'Rusk / breadcrumb',    icon:'🍞', lbl:'Rusk',        c:'#c99a5b'},
+  {key:'Onion paste',          icon:'🧅', lbl:'Onion',       c:'#e8d8c0'},
+  {key:'Ginger-garlic paste',  icon:'🧄', lbl:'Gin-garlic',  c:'#e5e0c8'},
+];
+const PRODUCTS = [
+  {id:'chips_masala', name:'Chips – Masala', bases:['chicken','pork','beef','mutton','fish'],
+   ingredients:[['Binder (starch)',18],['Masala spice mix',4],['Salt',1.8],['Ice water',10],['Oil',6]]},
+  {id:'chips_pepper', name:'Chips – Pepper', bases:['chicken','pork','beef','mutton','fish'],
+   ingredients:[['Binder (starch)',18],['Black pepper mix',3],['Salt',1.8],['Ice water',10],['Oil',6]]},
+  {id:'balls_classic', name:'Balls – Classic', bases:['chicken','pork','beef','mutton'],
+   ingredients:[['Rusk / breadcrumb',12],['Onion paste',8],['Ginger-garlic paste',3],['Classic spice mix',3.5],['Salt',1.6],['Ice water',8]]},
+  {id:'balls_schezwan', name:'Balls – Schezwan', bases:['chicken','pork'],
+   ingredients:[['Rusk / breadcrumb',12],['Schezwan paste',9],['Onion paste',6],['Salt',1.4],['Ice water',8]]},
+];
+const MIN_BASE_G = 500;
+const tolOf = t => Math.max(2, 0.02*t);
+const REBALANCE_LIMIT = 0.10;
+const DROP_ALARM_G = 150;
+const PIN = '1234';
+
+/* ================= simulated scale ================= */
+const scale = {
+  trueW: 0, reading: 0, hist: [],
+  tick(){
+    this.reading = Math.max(0, this.trueW + (Math.random()-0.5)*0.9);
+    this.hist.push(this.reading);
+    if(this.hist.length>15) this.hist.shift();
+  },
+  stable(){
+    if(this.hist.length<15) return false;
+    const mn=Math.min(...this.hist), mx=Math.max(...this.hist);
+    return (mx-mn) < 2.0;
+  }
+};
+
+/* ================= game scene state ================= */
+let tubs = [];              // {id, meatId, name, icon, weight, placed}
+function makeTubs(){
+  tubs = MEATS.map((m,i)=>({ id:'tub'+i, meatId:m.id, name:m.name, icon:m.icon,
+    weight: Math.round(m.min + Math.random()*(m.max-m.min)), placed:false }));
+}
+let lifted = false, liftedW = 0;
+let pouring = null;         // jar key currently pouring
+let pourT = 0;              // ticks held (rate ramp)
+
+/* ================= UI state machine ================= */
+const S = { HOME:'HOME', BASE:'BASE', CAPTURE:'CAPTURE', PRODUCT:'PRODUCT', REVIEW:'REVIEW',
+            ADD:'ADD', DONE:'DONE', MENU:'MENU' };
+let st = { screen:S.HOME, base:null, product:null, baseWt:0, steps:[], idx:0,
+           stepZero:0, okSince:0, rebalanced:false, overPrompted:false, batchNo:1 };
+let overlay = null;
+
+const main = document.getElementById('main');
+const overlayHost = document.getElementById('overlayHost');
+const sbInfo = document.getElementById('sbInfo');
+const hintEl = document.getElementById('hint');
+
+const beep = (freq=880,dur=90)=>{ try{
+  const ctx = beep.ctx || (beep.ctx = new (window.AudioContext||window.webkitAudioContext)());
+  const o=ctx.createOscillator(), g=ctx.createGain();
+  o.frequency.value=freq; o.connect(g); g.connect(ctx.destination);
+  g.gain.setValueAtTime(.08,ctx.currentTime); o.start(); o.stop(ctx.currentTime+dur/1000);
+}catch(e){} };
+const fanfare = ()=>{ [523,659,784,1046].forEach((f,i)=>setTimeout(()=>beep(f,140), i*130)); };
+
+const fmt = g => g>=1000 ? (g/1000).toFixed(2)+' kg' : Math.round(g)+' g';
+const fmtG = g => Math.round(g);
+const name = id => MEATS.find(b=>b.id===id).name;
+const prodName = id => PRODUCTS.find(p=>p.id===id).name;
+
+function computeSteps(){
+  const p = PRODUCTS.find(x=>x.id===st.product);
+  st.steps = p.ingredients.map(([n,pct])=>({name:n, target: st.baseWt*pct/100, actual:null, skipped:false}));
+}
+function go(screen){ st.screen = screen; overlay=null; render(); }
+function resetBatch(){ st.base=null; st.product=null; st.baseWt=0; st.steps=[]; st.idx=0; st.rebalanced=false;
+  scale.trueW=0; lifted=false; liftedW=0; document.getElementById('bowlWrap').classList.remove('lifted');
+  makeTubs(); }
+function startStep(i){ st.idx=i; st.stepZero=scale.reading; st.okSince=0; st.overPrompted=false; st.lastAdded=0; renderPantry(); }
+function curAdded(){ return Math.max(0, scale.reading - st.stepZero); }
+function acceptStep(){ st.steps[st.idx].actual = curAdded(); beep(1046,120); nextStep(); }
+function nextStep(){
+  const nxt = st.steps.findIndex((s,i)=> i>st.idx && s.actual===null && !s.skipped);
+  if(nxt<0){ fanfare(); go(S.DONE); }
+  else { startStep(nxt); go(S.ADD); }
+}
+
+/* ================= pantry rendering + interaction ================= */
+function renderPantry(){
+  const bs = document.getElementById('baseShelf');
+  bs.innerHTML = tubs.map(t=>{
+    let cls='item disabled';
+    if(t.placed) cls='item used';
+    else if(st.screen===S.CAPTURE && t.meatId===st.base && !tubs.some(x=>x.placed)) cls='item active';
+    return `<div class="${cls}" data-tub="${t.id}">
+      <div class="tray"><div class="meat">${t.icon}</div><div class="ttub"></div></div>
+      <div class="lbl">${t.name}</div>
+      <div class="subw">~${(t.weight/1000).toFixed(1)} kg</div></div>`;
+  }).join('');
+  const is = document.getElementById('ingShelf');
+  const cur = (st.screen===S.ADD && !overlay) ? st.steps[st.idx]?.name : null;
+  const doneKeys = new Set(st.steps.filter(s=>s.actual!==null||s.skipped).map(s=>s.name));
+  is.innerHTML = JARS.map(j=>{
+    let cls='item disabled';
+    if(doneKeys.has(j.key)) cls='item done';
+    if(cur===j.key) cls='item active';
+    return `<div class="${cls}" data-jar="${j.key}">
+      <div class="beaker"><div class="lid"></div>
+        <div class="bod"><div class="bfill" style="background:${j.c}"></div></div>
+        <div class="logo">${j.icon}</div></div>
+      <div class="lbl">${j.lbl}</div></div>`;
+  }).join('');
+  hintEl.textContent = pantryHint();
+  bindPantry();
+}
+function pantryHint(){
+  switch(st.screen){
+    case S.HOME: return 'Press START BATCH on the screen →';
+    case S.BASE: return 'Choose the base meat on the screen →';
+    case S.CAPTURE: return `Click the glowing ${name(st.base)} tray to put it in the tub.`;
+    case S.PRODUCT: return 'Choose the product on the screen →';
+    case S.REVIEW: return 'Check the recipe on the screen, then START ADDING.';
+    case S.ADD: return overlay ? 'Deal with the message on the screen first.' :
+      `Press & HOLD the glowing beaker to pour ${st.steps[st.idx].name}. Tap gently near the target!`;
+    case S.DONE: return 'Batch done! Press DONE for a fresh set of tubs.';
+    default: return '';
+  }
+}
+function rejectItem(el){ el.classList.remove('shake'); void el.offsetWidth; el.classList.add('shake'); beep(180,120); }
+
+function setStream(on, key){
+  const s = document.getElementById('stream');
+  s.style.display = on ? 'block' : 'none';
+  if(on && key){
+    const j = JARS.find(x=>x.key===key);
+    if(j) s.style.background = `repeating-linear-gradient(180deg, ${j.c} 0 6px, transparent 6px 12px)`;
+  }
+}
+function bindPantry(){
+  // meat trays: click to place into the tub
+  document.querySelectorAll('[data-tub]').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      const t = tubs.find(x=>x.id===el.dataset.tub);
+      const ok = st.screen===S.CAPTURE && t.meatId===st.base && !t.placed && !tubs.some(x=>x.placed) && !lifted;
+      if(!ok){ rejectItem(el); return; }
+      t.placed = true; scale.trueW += t.weight * (0.98+Math.random()*0.04);
+      beep(500,80); renderPantry();
+    });
+  });
+  // beakers: press and hold to pour
+  document.querySelectorAll('[data-jar]').forEach(el=>{
+    const key = el.dataset.jar;
+    const canPour = ()=> st.screen===S.ADD && !overlay && !lifted && st.steps[st.idx]?.name===key;
+    const start = e=>{ e.preventDefault();
+      if(!canPour()){ rejectItem(el); return; }
+      pouring = key; pourT = 0; el.classList.add('pouring');
+      document.getElementById('bowlWrap').classList.add('dropOk');
+      setStream(true, key);
+    };
+    const stop = ()=>{ if(pouring===key){ pouring=null; el.classList.remove('pouring');
+      document.getElementById('bowlWrap').classList.remove('dropOk');
+      setStream(false); } };
+    el.addEventListener('pointerdown', start);
+    ['pointerup','pointerleave','pointercancel'].forEach(ev=>el.addEventListener(ev, stop));
+  });
+}
+
+/* scale tools */
+document.getElementById('liftBtn').addEventListener('click', ()=>{
+  const bw = document.getElementById('bowlWrap');
+  if(!lifted){ lifted=true; liftedW=scale.trueW; scale.trueW=0; bw.classList.add('lifted');
+    document.getElementById('liftBtn').textContent='⤵ Put container back'; }
+  else { lifted=false; scale.trueW=liftedW; liftedW=0; bw.classList.remove('lifted');
+    document.getElementById('liftBtn').textContent='🖐 Lift container'; }
+});
+(function(){ const b=document.getElementById('scoopBtn'); let t=null;
+  const fn=()=>{ if(!lifted) scale.trueW=Math.max(0, scale.trueW-5); };
+  const start=e=>{e.preventDefault(); if(t)return; fn(); t=setInterval(fn,100);};
+  const stop=()=>{clearInterval(t); t=null;};
+  b.addEventListener('mousedown',start); b.addEventListener('touchstart',start,{passive:false});
+  ['mouseup','mouseleave','touchend'].forEach(ev=>b.addEventListener(ev,stop));
+})();
+
+/* ================= GUI renderers ================= */
+function render(){
+  sbInfo.textContent = st.base ? `${name(st.base)} · ${st.product?prodName(st.product):'—'} · base ${st.baseWt?fmt(st.baseWt):'—'}` : '';
+  const r = {HOME:rHome, BASE:rBase, CAPTURE:rCapture, PRODUCT:rProduct, REVIEW:rReview, ADD:rAdd, DONE:rDone, MENU:rMenu}[st.screen];
+  main.innerHTML = r();
+  bindMain();
+  renderOverlay();
+  renderPantry();
+}
+function rHome(){ return `
+  <div class="grow" style="display:flex;flex-direction:column;justify-content:center">
+    <div class="liveWt"><span class="stab" id="stabDot"></span><span id="lw">0</span><small> g</small></div>
+    <div class="prompt">Ready. Press START BATCH,<br>then follow the highlights in the pantry.</div>
+  </div>
+  <div class="row">
+    <button class="btn ghost" data-a="menu">MENU</button>
+    <button class="btn primary grow" data-a="start" style="font-size:18px">START BATCH</button>
+  </div>`;
+}
+function rBase(){ return `
+  <div class="crumb">Step 1 of 4 — <b>Select base ingredient</b></div>
+  <div class="grid grow" style="align-content:start">
+    ${MEATS.map(b=>`<button class="btn primary" data-a="base" data-id="${b.id}">${b.icon} ${b.name}</button>`).join('')}
+  </div>
+  <div class="row"><button class="btn ghost" data-a="home">◀ BACK</button></div>`;
+}
+function rCapture(){ return `
+  <div class="crumb">Step 2 of 4 — <b>Weigh base: ${name(st.base)}</b></div>
+  <div class="grow" style="display:flex;flex-direction:column;justify-content:center">
+    <div class="liveWt"><span class="stab" id="stabDot"></span><span id="lw">0</span><small> g</small></div>
+    <div class="prompt" id="capHint">Put the ${name(st.base)} tub in the container…</div>
+  </div>
+  <div class="row">
+    <button class="btn ghost" data-a="backBase">◀ BACK</button>
+    <button class="btn good grow" data-a="capture" id="capBtn" disabled style="font-size:17px">CAPTURE WEIGHT</button>
+  </div>`;
+}
+function rProduct(){
+  const list = PRODUCTS.filter(p=>p.bases.includes(st.base));
+  return `
+  <div class="crumb">Step 3 of 4 — <b>Select product / flavour</b> · ${name(st.base)} ${fmt(st.baseWt)}</div>
+  <div class="grid grow" style="align-content:start">
+    ${list.map(p=>`<button class="btn primary" data-a="prod" data-id="${p.id}">${p.name}</button>`).join('')}
+  </div>
+  <div class="row"><button class="btn ghost" data-a="backCapture">◀ BACK</button></div>`;
+}
+function rReview(){
+  const total = st.baseWt + st.steps.reduce((s,x)=>s+x.target,0);
+  return `
+  <div class="crumb">Step 4 of 4 — <b>Recipe review</b> · ${prodName(st.product)} ${st.rebalanced?'<span style="color:var(--amber)">· REBALANCED</span>':''}</div>
+  <div class="grow" style="overflow-y:auto">
+  <table class="recipe">
+    <tr><th>#</th><th>Ingredient</th><th style="text-align:right">Target</th><th style="text-align:right">Tol.</th></tr>
+    ${st.steps.map((s,i)=>`<tr><td>${i+1}</td><td>${s.name}${s.actual!==null?' ✓':''}</td>
+      <td class="num">${fmtG(s.target)} g</td><td class="num">± ${fmtG(tolOf(s.target))} g</td></tr>`).join('')}
+    <tr><td></td><td><b>Total batch</b></td><td class="num"><b>${fmt(total)}</b></td><td></td></tr>
+  </table></div>
+  <div class="row">
+    <button class="btn ghost" data-a="backProd">◀ BACK</button>
+    <button class="btn good grow" data-a="startAdd" style="font-size:17px">START ADDING ▶</button>
+  </div>`;
+}
+function rAdd(){
+  const s = st.steps[st.idx];
+  return `
+  <div class="stepHead">
+    <div><div class="n">Ingredient ${st.idx+1} of ${st.steps.length}</div>
+      <div class="ingName">${s.name}</div>
+      <div class="targetLine">Target <b style="color:var(--ink)">${fmtG(s.target)} g</b> (± ${fmtG(tolOf(s.target))} g)</div></div>
+    <div style="text-align:right"><div class="n">${prodName(st.product)}</div><div class="n">${name(st.base)} ${fmt(st.baseWt)}</div></div>
+  </div>
+  <div class="grow" style="display:flex;flex-direction:column;justify-content:center">
+    <div class="bigAdd"><span id="addVal">0</span><small> / ${fmtG(s.target)} g</small></div>
+    <div id="bar"><div id="tolBand"></div><div id="barFill"></div></div>
+    <div id="guide"></div>
+  </div>
+  <div class="row">
+    <button class="btn danger" data-a="abort">ABORT</button>
+    <button class="btn ghost grow" data-a="skip">SKIP (PIN)</button>
+    <button class="btn good" data-a="next" id="nextBtn" disabled>NEXT ▶</button>
+  </div>`;
+}
+function rDone(){
+  const scored = st.steps.filter(s=>s.actual!==null);
+  const within = scored.filter(s=>Math.abs(s.actual-s.target)<=tolOf(s.target)).length;
+  const within2 = scored.filter(s=>Math.abs(s.actual-s.target)<=2*tolOf(s.target)).length;
+  const stars = scored.length && within===scored.length ? 3 : (within2===scored.length ? 2 : 1);
+  const starHtml = '★★★'.split('').map((c,i)=>`<span class="${i<stars?'':'dim'}">★</span>`).join('');
+  const msg = stars===3?'Perfect batch!':stars===2?'Good — a little off on some.':'Logged — needs more care.';
+  const rows = st.steps.map((s,i)=>{
+    const dev = (s.actual??0) - s.target, pct = s.target? (dev/s.target*100) : 0;
+    const cls = s.actual!==null && Math.abs(dev)<=tolOf(s.target) ? 'dev-ok':'dev-bad';
+    return `<tr><td>${i+1}</td><td>${s.name}</td><td class="num">${fmtG(s.target)} g</td>
+      <td class="num">${s.actual===null?'—':fmtG(s.actual)+' g'}</td>
+      <td class="num ${cls}">${s.actual===null?'skipped':(dev>=0?'+':'')+dev.toFixed(0)+' g ('+pct.toFixed(1)+'%)'}</td></tr>`;
+  }).join('');
+  return `
+  <div class="crumb"><b style="color:var(--green);font-size:15px">✓ BATCH COMPLETE</b> — #MC-${String(st.batchNo).padStart(4,'0')} · log sent ✓</div>
+  <div class="stars">${starHtml}</div>
+  <div class="center" style="text-align:center;color:var(--muted);font-size:13px;margin-bottom:4px">${msg}</div>
+  <div class="grow" style="overflow-y:auto">
+  <table class="recipe">
+    <tr><th>#</th><th>Ingredient</th><th style="text-align:right">Target</th><th style="text-align:right">Actual</th><th style="text-align:right">Dev.</th></tr>
+    ${rows}
+  </table></div>
+  <div class="row">
+    <button class="btn primary grow" data-a="done" style="font-size:16px">DONE — NEW BATCH</button>
+    <button class="btn good grow" data-a="mixer" style="font-size:16px">SEND TO MIXING STATION ▶</button>
+  </div>`;
+}
+function rMenu(){ return `
+  <div class="crumb"><b>Menu</b> (supervisor)</div>
+  <div class="grid grow" style="align-content:start">
+    <button class="btn" data-a="stub">Recipe editor</button>
+    <button class="btn" data-a="stub">Scale calibration</button>
+    <button class="btn" data-a="stub">Manual tare</button>
+    <button class="btn" data-a="stub">Log / WiFi status</button>
+  </div>
+  <div class="row"><button class="btn ghost" data-a="home">◀ EXIT MENU</button></div>`;
+}
+
+/* ================= overlays ================= */
+function showOverlay(o){ overlay=o; renderOverlay(); renderPantry(); }
+function renderOverlay(){
+  if(!overlay){ overlayHost.innerHTML=''; return; }
+  let html='';
+  if(overlay.type==='pause'){
+    html=`<div class="overlay"><div class="card alarm">
+      <h3>⚠ Weight dropped — container removed?</h3>
+      <p>Put the container back on the scale. The batch resumes at the same ingredient.</p>
+      <div class="row"><button class="btn danger" data-o="abort">ABORT</button>
+      <button class="btn primary grow" data-o="resume" id="resumeBtn" disabled>RESUME (waiting…)</button></div>
+    </div></div>`;
+  } else if(overlay.type==='over'){
+    const s=st.steps[st.idx];
+    const canRb = overlay.overG <= s.target*REBALANCE_LIMIT && st.idx < st.steps.length-1;
+    html=`<div class="overlay"><div class="card warn">
+      <h3>Over target by ${fmtG(overlay.overG)} g</h3>
+      <p>${s.name}: target ${fmtG(s.target)} g, added ${fmtG(overlay.addedG)} g.</p>
+      <div class="row" style="flex-direction:column">
+        <button class="btn primary" data-o="remove">REMOVE EXCESS — use the scoop 🥄</button>
+        <button class="btn warn" data-o="rebalance" ${canRb?'':'disabled'}>REBALANCE remaining ingredients ${canRb?'':'(limit exceeded)'}</button>
+        <button class="btn ghost" data-o="pinAccept">SUPERVISOR ACCEPT (PIN, logged)</button>
+      </div>
+    </div></div>`;
+  } else if(overlay.type==='abort'){
+    html=`<div class="overlay"><div class="card alarm">
+      <h3>Abort batch?</h3><p>Logged as aborted at ingredient ${st.idx+1} of ${st.steps.length}.</p>
+      <div class="row"><button class="btn ghost grow" data-o="cancel">CANCEL</button>
+      <button class="btn danger grow" data-o="confirmAbort">YES, ABORT</button></div>
+    </div></div>`;
+  } else if(overlay.type==='pin'){
+    html=`<div class="overlay"><div class="card">
+      <h3>Supervisor PIN</h3><p>${overlay.why}</p>
+      <div class="pin">${'•'.repeat(overlay.entered.length)}</div>
+      <div class="pinpad">
+        ${[1,2,3,4,5,6,7,8,9,'←',0,'OK'].map(k=>`<button class="btn" data-o="pin" data-k="${k}">${k}</button>`).join('')}
+      </div>
+      <div class="row" style="margin-top:8px"><button class="btn ghost grow" data-o="cancel">CANCEL</button></div>
+    </div></div>`;
+  }
+  overlayHost.innerHTML=html;
+  overlayHost.querySelectorAll('[data-o]').forEach(b=>b.addEventListener('click',()=>onOverlay(b.dataset.o,b.dataset.k)));
+}
+function onOverlay(a,k){
+  if(a==='cancel'){ overlay=null; renderOverlay(); renderPantry(); return; }
+  if(a==='abort'){ showOverlay({type:'abort'}); return; }
+  if(a==='confirmAbort'){ beep(220,300); st.batchNo++; resetBatch(); go(S.HOME); return; }
+  if(a==='resume'){ st.stepZero = scale.reading - Math.min(overlay.preAdded||0, st.steps[st.idx].target*2);
+    overlay=null; renderOverlay(); renderPantry(); return; }
+  if(a==='remove'){ overlay=null; renderOverlay(); renderPantry(); return; }
+  if(a==='rebalance'){
+    const s=st.steps[st.idx], k2 = curAdded()/s.target;
+    for(let i=st.idx+1;i<st.steps.length;i++) st.steps[i].target *= k2;
+    s.actual = curAdded(); s.target = s.actual; st.rebalanced=true;
+    beep(660); go(S.REVIEW); return;
+  }
+  if(a==='pinAccept'){ showOverlay({type:'pin', why:'Accept over-target amount (will be logged).', entered:'', onOk:()=>{ acceptStep(); }}); return; }
+  if(a==='pin'){
+    if(k==='←') overlay.entered = overlay.entered.slice(0,-1);
+    else if(k==='OK'){
+      if(overlay.entered===PIN){ const cb=overlay.onOk; overlay=null; renderOverlay(); renderPantry(); cb(); return; }
+      else { overlay.entered=''; beep(200,200); }
+    } else if(overlay.entered.length<4) overlay.entered+=k;
+    renderOverlay(); return;
+  }
+}
+
+/* ================= GUI actions ================= */
+function bindMain(){
+  main.querySelectorAll('[data-a]').forEach(b=>b.addEventListener('click',()=>onAction(b.dataset.a,b.dataset.id)));
+}
+function onAction(a,id){
+  switch(a){
+    case 'start': go(S.BASE); break;
+    case 'menu': showOverlay({type:'pin', why:'Enter supervisor PIN to open the menu.', entered:'', onOk:()=>go(S.MENU)}); break;
+    case 'home': resetBatch(); go(S.HOME); break;
+    case 'base': st.base=id; go(S.CAPTURE); break;
+    case 'backBase': go(S.BASE); break;
+    case 'capture': st.baseWt = scale.reading; beep(880); go(S.PRODUCT); break;
+    case 'backCapture': go(S.CAPTURE); break;
+    case 'prod': st.product=id; st.rebalanced=false; computeSteps(); go(S.REVIEW); break;
+    case 'backProd': go(S.PRODUCT); break;
+    case 'startAdd': { const i = st.steps.findIndex(x=>x.actual===null && !x.skipped); startStep(i<0?0:i); go(S.ADD); } break;
+    case 'next': acceptStep(); break;
+    case 'skip': showOverlay({type:'pin', why:'Skip this ingredient (logged as skipped).', entered:'', onOk:()=>{ st.steps[st.idx].skipped=true; nextStep(); }}); break;
+    case 'abort': showOverlay({type:'abort'}); break;
+    case 'done': st.batchNo++; resetBatch(); go(S.HOME); break;
+    case 'mixer': beep(880,120);
+      // Hosted site layout: this page is served at /mincecraft/, the mixer sim at /schedule1/
+      window.location.href = '../schedule1/';
+      break;
+    case 'stub': beep(500); break;
+  }
+}
+
+/* ================= 100 ms loop ================= */
+setInterval(()=>{
+  // pouring physics: rate ramps the longer you hold
+  if(pouring && st.screen===S.ADD && !overlay && !lifted){
+    pourT++;
+    const rate = Math.min(2 + pourT*1.6, 28);   // g per tick → 20–280 g/s
+    scale.trueW += rate;
+  }
+  scale.tick();
+
+  // scale LCD + tub contents
+  document.getElementById('lcd').innerHTML = scale.reading.toFixed(0)+'<small> g</small>';
+  document.getElementById('fill').style.opacity = scale.trueW > 40 ? 1 : 0;
+
+  const lw = document.getElementById('lw');
+  if(lw){ lw.textContent = scale.reading.toFixed(0);
+    const dot=document.getElementById('stabDot'); if(dot) dot.className='stab'+(scale.stable()?' on':''); }
+
+  if(st.screen===S.CAPTURE && !overlay){
+    const ok = scale.stable() && scale.reading>=MIN_BASE_G && !lifted;
+    const btn=document.getElementById('capBtn'); if(btn) btn.disabled=!ok;
+    const hint=document.getElementById('capHint');
+    if(hint) hint.textContent = ok ? `Stable: ${scale.reading.toFixed(0)} g — press CAPTURE`
+      : (scale.reading<MIN_BASE_G ? `Put the ${name(st.base)} tub in the container…` : 'Stabilising…');
+  }
+
+  if(st.screen===S.ADD){
+    const s=st.steps[st.idx], added=curAdded(), tol=tolOf(s.target);
+    if(!overlay && scale.reading < st.stepZero - DROP_ALARM_G){
+      beep(200,400); showOverlay({type:'pause', preAdded:st.lastAdded||0});
+    }
+    if(overlay && overlay.type==='pause'){
+      const rb=document.getElementById('resumeBtn');
+      const restored = scale.reading >= st.stepZero - 5;
+      if(rb){ rb.disabled=!restored; rb.textContent = restored?'RESUME':'RESUME (waiting…)'; }
+      return;
+    }
+    if(overlay) return;
+    st.lastAdded = added;
+    const el=document.getElementById('addVal'); if(el) el.textContent=added.toFixed(0);
+    const maxW = s.target*1.3;
+    const fill=document.getElementById('barFill'), band=document.getElementById('tolBand'), guide=document.getElementById('guide');
+    if(!fill) return;
+    fill.style.width = Math.min(100, added/maxW*100)+'%';
+    band.style.left = ((s.target-tol)/maxW*100)+'%'; band.style.width = (2*tol/maxW*100)+'%';
+    const nextBtn=document.getElementById('nextBtn');
+    if(added < s.target-tol){
+      fill.style.background='var(--blue)'; guide.className='g-under';
+      guide.textContent=`Add ${(s.target-added).toFixed(0)} g more…`; nextBtn.disabled=true; st.okSince=0;
+    } else if(added <= s.target+tol){
+      fill.style.background='var(--green)'; guide.className='g-ok';
+      nextBtn.disabled=false;
+      if(scale.stable() && !pouring){
+        if(!st.okSince) st.okSince=performance.now();
+        const left = 2 - (performance.now()-st.okSince)/1000;
+        guide.textContent = left>0 ? `OK — hold steady… ${left.toFixed(1)} s` : 'OK';
+        if(left<=0) acceptStep();
+      } else { st.okSince=0; guide.textContent='OK — let go to confirm'; }
+    } else {
+      fill.style.background='var(--red)'; guide.className='g-over'; st.okSince=0; nextBtn.disabled=true;
+      guide.textContent=`Over by ${(added-s.target).toFixed(0)} g — scoop some out 🥄`;
+      if(added > s.target+tol*3 && scale.stable() && !pouring && !st.overPrompted){
+        st.overPrompted=true; beep(300,250); showOverlay({type:'over', overG:added-s.target, addedG:added});
+      }
+    }
+  }
+},100);
+
+makeTubs();
+render();
+</script>
+</body>
+</html>

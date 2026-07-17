@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DOKI Schedule 1 — Operator Panel Simulator</title>
+<style>
+  :root{
+    --steel:#3a4149; --steel-d:#2b3138; --panel:#4b545e; --line:#5d6772;
+    --lcd-bg:#9ec400; --lcd-dark:#1d2b00; --amber:#ffb300; --red:#e53935;
+    --green:#43a047; --blue:#1565c0; --ink:#1c2126; --paper:#eef1f4;
+  }
+  *{box-sizing:border-box; -webkit-user-select:none; user-select:none;}
+  body{margin:0; background:#22262b; color:#e8ebee; font-family:"Segoe UI",Arial,sans-serif;}
+  header{padding:18px 26px 6px;}
+  header h1{margin:0; font-size:21px; letter-spacing:.4px;}
+  header p{margin:4px 0 0; color:#9aa4ad; font-size:13px;}
+  .wrap{display:grid; grid-template-columns:minmax(300px,1fr) minmax(360px,430px) minmax(280px,1fr);
+        gap:18px; padding:16px 26px 26px; align-items:start;}
+  @media (max-width:1100px){.wrap{grid-template-columns:1fr;}}
+  .card{background:#2b3036; border:1px solid #3a4046; border-radius:12px; padding:16px;}
+  .card h2{margin:0 0 10px; font-size:12px; letter-spacing:1.5px; color:#9aa4ad; text-transform:uppercase;}
+
+  /* ---------- MACHINE ---------- */
+  .machine-stage{display:flex; flex-direction:column; align-items:center;}
+  #hookGroup{transform-origin:150px 96px;}
+  .running #hookGroup{animation:spin .5s linear infinite;}
+  .running #bowlWobble{animation:wobble .18s linear infinite;}
+  @keyframes spin{0%{transform:scaleX(1)}25%{transform:scaleX(.12)}50%{transform:scaleX(-1)}75%{transform:scaleX(-.12)}100%{transform:scaleX(1)}}
+  @keyframes wobble{0%{transform:translateX(0)}25%{transform:translateX(.7px)}75%{transform:translateX(-.7px)}100%{transform:translateX(0)}}
+  .motor-read{display:flex; gap:14px; margin-top:10px; font-size:13px; align-items:center;}
+  .dot{width:11px; height:11px; border-radius:50%; background:#666; display:inline-block; margin-right:6px; vertical-align:-1px;}
+  .dot.on{background:var(--green); box-shadow:0 0 8px var(--green);}
+  .amps{font-family:Consolas,monospace; background:#1c2024; border:1px solid #3a4046; border-radius:6px; padding:3px 10px; color:#7fd4ff;}
+  .mswitch{margin-top:14px; background:var(--steel); border:1px solid var(--line); border-radius:10px; padding:10px 14px; text-align:center;}
+  .mswitch .cap{font-size:10px; letter-spacing:1.2px; color:#c3cad1; margin-bottom:8px;}
+  .mswitch button{width:74px; height:40px; margin:0 5px; border-radius:8px; border:2px solid #222;
+    font-weight:700; font-size:12px; color:#fff; cursor:pointer; box-shadow:0 3px 0 #1a1d20;}
+  .mswitch button:active{transform:translateY(2px); box-shadow:0 1px 0 #1a1d20;}
+  .mswitch .on-btn{background:linear-gradient(#66bb6a,#2e7d32);}
+  .mswitch .off-btn{background:linear-gradient(#ef5350,#b71c1c);}
+  .mswitch .note{font-size:10px; color:#8f99a3; margin-top:7px;}
+  .mswitch.dead{opacity:.55;}
+
+  /* ---------- CONTROL PANEL ---------- */
+  .enclosure{background:linear-gradient(#525c66,#3e474f); border:3px solid #262b30; border-radius:14px;
+    padding:14px 16px 12px; box-shadow:inset 0 1px 0 #6b7580, 0 10px 24px rgba(0,0,0,.45);}
+  .screws{display:flex; justify-content:space-between; margin:-4px 0 6px;}
+  .screws span{width:10px;height:10px;border-radius:50%;background:radial-gradient(#cfd6dc,#7c8791);
+    box-shadow:inset 0 0 2px #333; position:relative;}
+  .nameplate{display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;}
+  .nameplate .brand{font-weight:800; letter-spacing:2px; font-size:15px; color:#f2f5f7;}
+  .nameplate .sub{font-size:10px; color:#b9c2ca; letter-spacing:1px; text-align:right;}
+  .lcd{background:radial-gradient(ellipse at 50% 0%, #b7dd18, #8fb400 75%); border:6px solid #22282e;
+    border-radius:8px; padding:10px 12px; box-shadow:inset 0 0 18px rgba(0,0,0,.35);}
+  .lcd pre{margin:0; font-family:Consolas,"Courier New",monospace; font-size:16.5px; line-height:1.35;
+    letter-spacing:2.5px; color:var(--lcd-dark); text-shadow:0 0 1px rgba(29,43,0,.5); white-space:pre;}
+  .lcd.alert pre{animation:blink 1s steps(2) infinite;}
+  @keyframes blink{50%{opacity:.35;}}
+  .panel-body{display:grid; grid-template-columns:1fr 118px; gap:14px; margin-top:14px;}
+  .keypad{display:grid; grid-template-columns:repeat(4,1fr); gap:7px;}
+  .keypad button{height:46px; border-radius:7px; border:1px solid #20252a; cursor:pointer;
+    background:linear-gradient(#eef1f4,#c6ccd2); font-weight:700; font-size:16px; color:#20252a;
+    box-shadow:0 3px 0 #1e2328;}
+  .keypad button:active{transform:translateY(2px); box-shadow:0 1px 0 #1e2328;}
+  .keypad button.fn{background:linear-gradient(#90a4ae,#607d8b); color:#fff; font-size:13px;}
+  .keypad button.go{background:linear-gradient(#66bb6a,#2e7d32); color:#fff;}
+  .keypad button.halt{background:linear-gradient(#ef5350,#b71c1c); color:#fff;}
+  .legend{grid-column:1 / -1; font-size:10px; color:#c3cad1; letter-spacing:.4px; text-align:center; margin-top:2px;}
+  .side{display:flex; flex-direction:column; align-items:center; gap:13px;}
+  .estop{width:86px; height:86px; border-radius:50%; background:radial-gradient(#ffd54f,#f9a825);
+    display:flex; align-items:center; justify-content:center; cursor:pointer;
+    box-shadow:0 4px 10px rgba(0,0,0,.4);}
+  .estop .mushroom{width:60px; height:60px; border-radius:50%; background:radial-gradient(circle at 35% 30%, #ff6f60, #c62828 70%);
+    border:3px solid #8e1c1c; box-shadow:0 5px 0 #7f1a1a; display:flex; align-items:center; justify-content:center;
+    color:#fff; font-size:8px; font-weight:800; text-align:center; line-height:1.2; letter-spacing:.5px;}
+  .estop.latched .mushroom{transform:translateY(4px); box-shadow:0 1px 0 #7f1a1a; background:radial-gradient(circle at 35% 30%, #d84334, #8e1c1c 70%);}
+  .cap{font-size:9px; letter-spacing:1px; color:#c3cad1; text-align:center; margin-top:-8px;}
+  .selector{width:74px; height:74px; border-radius:50%; background:radial-gradient(#e0e5e9,#9aa5ad);
+    position:relative; cursor:pointer; box-shadow:0 4px 8px rgba(0,0,0,.4), inset 0 0 4px #667;}
+  .knob{position:absolute; left:50%; top:50%; width:16px; height:52px; margin:-26px 0 0 -8px;
+    background:linear-gradient(#37474f,#12181d); border-radius:8px; transition:transform .25s;
+    transform:rotate(-35deg);}
+  .selector.bypass .knob{transform:rotate(35deg);}
+  .selector .lab{position:absolute; font-size:9px; font-weight:800; color:#1c2126; top:31px;}
+  .selector .lab.a{left:-30px;} .selector .lab.b{right:-44px;}
+  .selector .lab{color:#c3cad1;}
+  .lamp{width:34px; height:34px; border-radius:50%; border:4px solid #22282e;
+    background:radial-gradient(#7a5b13,#4d3a0c); transition:all .2s;}
+  .lamp.on{background:radial-gradient(#ffe082,#ff8f00); box-shadow:0 0 18px 4px rgba(255,179,0,.55);}
+  .sled{width:16px; height:16px; border-radius:50%; background:#243; border:3px solid #22282e;}
+  .sled.ok{background:#43a047; box-shadow:0 0 10px #43a047;}
+  .sled.mix{background:#43a047; animation:blink .7s steps(2) infinite; box-shadow:0 0 10px #43a047;}
+  .sled.rest{background:var(--amber); box-shadow:0 0 10px var(--amber);}
+  .sled.err{background:var(--red); box-shadow:0 0 10px var(--red);}
+  .buzzer{width:44px; height:44px; border-radius:50%; background:repeating-radial-gradient(circle,#39424a 0 3px,#20262b 3px 6px);
+    border:3px solid #22282e;}
+  .buzzer.beeping{box-shadow:0 0 16px 3px rgba(255,235,59,.7);}
+  .glandrow{display:flex; justify-content:center; gap:26px; margin-top:12px;}
+  .gland{width:22px;height:14px;background:linear-gradient(#111,#333);border-radius:4px 4px 8px 8px;}
+
+  /* ---------- LOG ---------- */
+  .log{height:520px; overflow-y:auto; font-family:Consolas,monospace; font-size:11.5px; line-height:1.5;
+    background:#15181c; border-radius:8px; border:1px solid #3a4046; padding:10px;}
+  .log .e{margin-bottom:8px; border-left:3px solid #4a5560; padding-left:8px; word-break:break-all;}
+  .log .t{color:#7d8791;}
+  .log .topic{color:#7fd4ff;}
+  .log .run{border-color:var(--green);} .log .warn{border-color:var(--amber);}
+  .log .err{border-color:var(--red);} .log .info{border-color:var(--blue);}
+  .log .pl{color:#c8d2a0;}
+  .conn{font-size:11px; color:#8f99a3; margin-bottom:8px;}
+  .conn b{color:#7fd4ff;}
+
+  /* ---------- SIM BAR ---------- */
+  .simbar{display:flex; gap:16px; align-items:center; flex-wrap:wrap; padding:0 26px 26px; color:#9aa4ad; font-size:13px;}
+  .simbar select,.simbar button{background:#2b3036; color:#e8ebee; border:1px solid #4a5560; border-radius:6px; padding:5px 10px; font-size:13px; cursor:pointer;}
+  .toast{position:fixed; left:50%; bottom:26px; transform:translateX(-50%); background:#111; color:#ffd54f;
+    padding:10px 18px; border-radius:8px; font-size:13px; opacity:0; transition:opacity .3s; pointer-events:none; max-width:80%; text-align:center; z-index:9;}
+  .toast.show{opacity:1;}
+</style>
+</head>
+<body>
+<header>
+  <p style="margin:0 0 10px"><a href="../mincecraft/" style="color:#4a90d9;text-decoration:none;font-size:13px">◀ Back to MINCECRAFT (weighing station)</a></p>
+  <h1>DOKI Schedule 1 — Operator Panel Simulator</h1>
+  <p>Everything the operator sees and touches: the timer box (LCD, keypad, E-stop, AUTO/BYPASS selector, bypass lamp, buzzer), the mixer with its own switch, and what gets logged to the central computer.</p>
+</header>
+
+<div class="wrap">
+
+  <!-- ============ MACHINE ============ -->
+  <div class="card machine-stage" id="machineCard">
+    <h2>Dough Mixing Machine</h2>
+    <svg width="300" height="290" viewBox="0 0 300 290">
+      <rect x="60" y="252" width="180" height="14" rx="4" fill="#20262b"/>
+      <rect x="188" y="60" width="46" height="196" rx="8" fill="#4b545e" stroke="#2b3138" stroke-width="2"/>
+      <rect x="196" y="200" width="30" height="34" rx="4" fill="#39424a"/>
+      <text x="211" y="221" text-anchor="middle" font-size="9" fill="#9aa4ad" font-family="monospace">MOTOR</text>
+      <path d="M 188 60 h -92 a14 14 0 0 0 -14 14 v 14 h 106 z" fill="#4b545e" stroke="#2b3138" stroke-width="2"/>
+      <circle cx="104" cy="74" r="5" fill="#20262b"/>
+      <g id="bowlWobble">
+        <path d="M 68 150 a 82 78 0 0 0 164 0 v -22 h -164 z" fill="#aeb9c2" stroke="#5d6772" stroke-width="3"/>
+        <ellipse cx="150" cy="128" rx="82" ry="14" fill="#8f9aa4" stroke="#5d6772" stroke-width="3"/>
+        <ellipse cx="150" cy="132" rx="66" ry="10" fill="#e8c0ae" id="dough1"/>
+        <ellipse cx="138" cy="130" rx="26" ry="7" fill="#f2d2c2"/>
+      </g>
+      <rect x="146" y="88" width="8" height="14" fill="#2b3138"/>
+      <g id="hookGroup">
+        <path d="M 150 96 v 34 c 0 16 22 16 22 2 c 0 -8 -10 -10 -14 -4" fill="none" stroke="#37474f" stroke-width="9" stroke-linecap="round"/>
+      </g>
+      <text x="120" y="52" text-anchor="middle" font-size="11" fill="#9aa4ad" font-family="monospace">SPIRAL MIXER</text>
+    </svg>
+    <div class="motor-read">
+      <span><span class="dot" id="motorDot"></span><span id="motorTxt">MOTOR OFF</span></span>
+      <span class="amps" id="ampsTxt">0.0 A</span>
+      <span style="font-size:11px;color:#8f99a3;">CT sensor reading</span>
+    </div>
+    <div class="mswitch dead" id="mswitch">
+      <div class="cap">MIXER'S OWN SWITCH &nbsp;(live only in BYPASS)</div>
+      <button class="on-btn" onclick="machineSwitch(true)">ON &#9654;</button>
+      <button class="off-btn" onclick="machineSwitch(false)">&#9632; OFF</button>
+      <div class="note" id="mswitchNote">Disconnected — selector is in AUTO</div>
+    </div>
+  </div>
+
+  <!-- ============ TIMER BOX ============ -->
+  <div class="card">
+    <h2>Timer Box — Front Panel (IP65)</h2>
+    <div class="enclosure">
+      <div class="screws"><span></span><span></span></div>
+      <div class="nameplate">
+        <div class="brand">DOKI · SCHEDULE 1</div>
+        <div class="sub">DOUGH TIMER<br>AUTO SHUTOFF · WIFI LOG</div>
+      </div>
+      <div class="lcd" id="lcdBox"><pre id="lcd"></pre></div>
+      <div class="panel-body">
+        <div class="keypad" id="keypad">
+          <button onclick="key('1')">1</button><button onclick="key('2')">2</button><button onclick="key('3')">3</button><button class="fn" onclick="key('A')">A &#9650;</button>
+          <button onclick="key('4')">4</button><button onclick="key('5')">5</button><button onclick="key('6')">6</button><button class="fn" onclick="key('B')">B &#9660;</button>
+          <button onclick="key('7')">7</button><button onclick="key('8')">8</button><button onclick="key('9')">9</button><button class="fn" onclick="key('C')">C &#8617;</button>
+          <button class="go" onclick="key('*')">&#9654; *</button><button onclick="key('0')">0</button><button class="halt" onclick="key('#')"># &#9632;</button><button class="fn" onclick="key('D')">D OK</button>
+          <div class="legend">A/B scroll &nbsp;·&nbsp; D select &nbsp;·&nbsp; C back &nbsp;·&nbsp; * START &nbsp;·&nbsp; # STOP</div>
+        </div>
+        <div class="side">
+          <div>
+            <div class="estop" id="estop" onclick="toggleEstop()" title="Emergency stop">
+              <div class="mushroom">EMERG<br>STOP</div>
+            </div>
+            <div class="cap" style="margin-top:4px;">E-STOP · TWIST TO RELEASE</div>
+          </div>
+          <div>
+            <div class="selector" id="selector" onclick="toggleSelector()" title="AUTO / BYPASS selector">
+              <span class="lab a">AUTO</span><span class="lab b">BYPASS</span>
+              <div class="knob"></div>
+            </div>
+            <div class="cap" style="margin-top:4px;">MODE SELECTOR</div>
+          </div>
+          <div style="text-align:center;">
+            <div class="lamp" id="bypassLamp" style="margin:0 auto;"></div>
+            <div class="cap" style="margin-top:4px;">BYPASS ON</div>
+          </div>
+          <div style="display:flex; gap:14px; align-items:center;">
+            <div style="text-align:center;"><div class="sled ok" id="statusLed"></div><div class="cap" style="margin-top:3px;">STATUS</div></div>
+            <div style="text-align:center;"><div class="buzzer" id="buzzer"></div><div class="cap" style="margin-top:3px;">BUZZER</div></div>
+          </div>
+        </div>
+      </div>
+      <div class="glandrow"><div class="gland"></div><div class="gland"></div><div class="gland"></div></div>
+    </div>
+  </div>
+
+  <!-- ============ CENTRAL PC LOG ============ -->
+  <div class="card">
+    <h2>Central Computer — Live Run Log</h2>
+    <div class="conn">MQTT broker: <b>connected</b> &nbsp;·&nbsp; device <b>schedule1</b> &nbsp;·&nbsp; WiFi RSSI −58 dBm</div>
+    <div class="log" id="log"></div>
+  </div>
+</div>
+
+<div class="simbar">
+  <span><b>Simulation controls</b> (not part of the real panel):</span>
+  <label>Speed
+    <select id="speed">
+      <option value="1">real time</option>
+      <option value="10">10&#215;</option>
+      <option value="60" selected>60&#215; (1 min = 1 s)</option>
+    </select>
+  </label>
+  <label><input type="checkbox" id="sound" checked> buzzer sound</label>
+  <button onclick="resetSim()">Reset simulator</button>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+/* ================= presets & state ================= */
+const PRESETS = [
+  {name:"MANUAL TIME", mix:null, rest:null},
+  {name:"CHICKEN", mix:10, rest:45},
+  {name:"PORK",    mix:12, rest:60},
+  {name:"BEEF",    mix:15, rest:60},
+  {name:"MUTTON",  mix:12, rest:50},
+  {name:"FISH",    mix:8,  rest:30},
+];
+const TRIM_STEP = 30, TRIM_MAX = 120;   // water-content adjustment: ±30 s steps, max ±2 min
+let S = null;
+function freshState(){
+  return {
+    screen:"menu",         // menu | manual | ready | mixing | resting
+    menuIdx:0, menuTop:0,
+    manualBuf:"", manualStep:"mix", manualMix:0,
+    sel:null,              // selected preset {name,mix,rest}
+    trim:0, runAdj:0,      // water-content time adjustment (seconds)
+    mixLeft:0, restLeft:0, restName:"",
+    bgRest:null,           // {name, left} background rest while doing other things
+    estop:false, bypass:false,
+    motor:false, amps:0, inrush:0,
+    runStart:null, runSetMin:0, runMode:"auto", runElapsed:0, ampSum:0, ampN:0,
+  };
+}
+
+/* ================= audio ================= */
+let AC=null;
+function beep(freq=2400, dur=0.12, when=0){
+  if(!document.getElementById("sound").checked) return;
+  try{
+    AC = AC || new (window.AudioContext||window.webkitAudioContext)();
+    const o=AC.createOscillator(), g=AC.createGain();
+    o.type="square"; o.frequency.value=freq;
+    g.gain.setValueAtTime(0.06, AC.currentTime+when);
+    g.gain.exponentialRampToValueAtTime(0.001, AC.currentTime+when+dur);
+    o.connect(g); g.connect(AC.destination);
+    o.start(AC.currentTime+when); o.stop(AC.currentTime+when+dur+.02);
+  }catch(e){}
+}
+function buzzerPattern(n, freq=2400, gap=0.22){
+  for(let i=0;i<n;i++) beep(freq, .14, i*gap);
+  const b=document.getElementById("buzzer");
+  b.classList.add("beeping"); setTimeout(()=>b.classList.remove("beeping"), n*gap*1000+300);
+}
+function keyClick(){ beep(1500,.03); }
+
+/* ================= LCD ================= */
+function pad(s){ s=(s||"").substring(0,20); return s + " ".repeat(20-s.length); }
+function lcd(l1,l2,l3,l4,alert=false){
+  document.getElementById("lcd").textContent = [l1,l2,l3,l4].map(pad).join("\n");
+  document.getElementById("lcdBox").classList.toggle("alert", alert);
+}
+function fmt(sec){
+  sec=Math.max(0,Math.ceil(sec));
+  const m=Math.floor(sec/60), s=sec%60;
+  return String(m).padStart(2,"0")+":"+String(s).padStart(2,"0");
+}
+
+/* ================= log ================= */
+function now(){ return new Date().toLocaleTimeString("en-IN",{hour12:false}); }
+function isoNow(){
+  const d=new Date(), p=n=>String(n).padStart(2,"0");
+  return d.getFullYear()+"-"+p(d.getMonth()+1)+"-"+p(d.getDate())+"T"+p(d.getHours())+":"+p(d.getMinutes())+":"+p(d.getSeconds())+"+05:30";
+}
+function addLog(topic, payload, cls="info"){
+  const el=document.getElementById("log");
+  const e=document.createElement("div");
+  e.className="e "+cls;
+  e.innerHTML = '<span class="t">'+now()+'</span> <span class="topic">'+topic+'</span><br><span class="pl">'+JSON.stringify(payload)+'</span>';
+  el.prepend(e);
+  while(el.children.length>60) el.removeChild(el.lastChild);
+}
+
+/* ================= motor ================= */
+function setMotor(on, mode){
+  if(on && S.estop) return;
+  if(on && !S.motor){
+    S.inrush=1.4;
+    S.runStart=isoNow(); S.runElapsed=0; S.ampSum=0; S.ampN=0; S.runMode=mode;
+    addLog("doki/schedule1/status",{state:"running",mode:mode},"info");
+  }
+  if(!on && S.motor){
+    addLog("doki/schedule1/status",{state:"stopped"},"info");
+  }
+  S.motor=on;
+}
+function finishRun(end){
+  const avg = S.ampN? (S.ampSum/S.ampN):0;
+  addLog("doki/schedule1/run",{
+    device:"schedule1", preset:(S.sel?S.sel.name.toLowerCase():"manual"),
+    start:S.runStart, set_min:S.runSetMin, adj_s:(S.runMode==="auto"?S.runAdj:0),
+    rest_min:(S.sel&&S.sel.rest)?S.sel.rest:0,
+    ran_s:Math.round(S.runElapsed), end:end, mode:S.runMode, avg_amps:+avg.toFixed(1)
+  }, end==="completed"?"run":"warn");
+}
+
+/* ================= keys & controls ================= */
+function key(k){
+  keyClick();
+  if(S.estop){ toast("E-stop is latched — twist (click) it to release."); return; }
+  if(S.bypass){ toast("BYPASS mode — the keypad is inactive. Use the machine's own switch, or turn the selector back to AUTO."); return; }
+
+  if(S.screen==="menu"){
+    if(k==="A") S.menuIdx=Math.max(0,S.menuIdx-1);
+    else if(k==="B") S.menuIdx=Math.min(PRESETS.length-1,S.menuIdx+1);
+    else if(k==="D"){
+      const p=PRESETS[S.menuIdx];
+      if(p.mix===null){ S.screen="manual"; S.manualBuf=""; S.manualStep="mix"; }
+      else { S.sel={...p}; S.trim=0; S.screen="ready"; }
+    }
+  }
+  else if(S.screen==="manual"){
+    const maxLen = S.manualStep==="mix" ? 2 : 3;
+    if(k>="0"&&k<="9"&&S.manualBuf.length<maxLen) S.manualBuf+=k;
+    else if(k==="C"){
+      if(S.manualBuf.length) S.manualBuf=S.manualBuf.slice(0,-1);
+      else if(S.manualStep==="rest"){ S.manualStep="mix"; S.manualBuf=String(S.manualMix); }
+      else S.screen="menu";
+    }
+    else if(k==="D"){
+      if(S.manualStep==="mix"){
+        const m=parseInt(S.manualBuf||"0",10);
+        if(m<1||m>90){ toast("Enter 1–90 minutes of mixing."); buzzerPattern(1,900); return; }
+        S.manualMix=m; S.manualStep="rest"; S.manualBuf="";
+      } else {
+        const r=parseInt(S.manualBuf||"0",10);
+        if(r>180){ toast("Rest can be 0–180 minutes (0 = no rest timer)."); buzzerPattern(1,900); return; }
+        S.sel={name:"MANUAL", mix:S.manualMix, rest:r}; S.trim=0; S.screen="ready";
+      }
+    }
+  }
+  else if(S.screen==="ready"){
+    if(k==="A"||k==="B"){
+      const t=S.trim+(k==="A"?TRIM_STEP:-TRIM_STEP);
+      if(t>TRIM_MAX||t<-TRIM_MAX){ toast("Water adjustment is limited to ±2 minutes."); buzzerPattern(1,900); }
+      else S.trim=t;
+    }
+    else if(k==="*"){
+      S.mixLeft=S.sel.mix*60+S.trim; S.runSetMin=S.sel.mix; S.runAdj=S.trim;
+      S.screen="mixing"; setMotor(true,"auto");
+    }
+    else if(k==="C") S.screen="menu";
+  }
+  else if(S.screen==="mixing"){
+    if(k==="#"){
+      setMotor(false); finishRun("aborted"); buzzerPattern(1,900,-0);
+      S.screen="menu";
+    }
+  }
+  else if(S.screen==="resting"){
+    if(k==="D"||k==="C"){
+      S.bgRest={name:S.restName, left:S.restLeft};   // keep resting in background
+      S.screen="menu";
+    }
+    else if(k==="#"){ S.restLeft=0; S.bgRest=null; S.screen="menu"; toast("Rest reminder dismissed."); }
+  }
+  render();
+}
+
+function toggleEstop(){
+  S.estop=!S.estop;
+  document.getElementById("estop").classList.toggle("latched",S.estop);
+  if(S.estop){
+    if(S.motor){ setMotor(false); if(S.screen==="mixing"){ finishRun("estop"); } }
+    if(S.screen==="mixing") S.screen="menu";
+    buzzerPattern(2,700);
+    addLog("doki/schedule1/event",{event:"estop_pressed"},"err");
+  } else {
+    addLog("doki/schedule1/event",{event:"estop_released"},"info");
+  }
+  render();
+}
+
+function toggleSelector(){
+  if(S.motor && !S.bypass){ toast("Stop the mixer before changing mode."); return; }
+  S.bypass=!S.bypass;
+  document.getElementById("selector").classList.toggle("bypass",S.bypass);
+  document.getElementById("bypassLamp").classList.toggle("on",S.bypass);
+  document.getElementById("mswitch").classList.toggle("dead",!S.bypass);
+  document.getElementById("mswitchNote").textContent = S.bypass
+    ? "Live — controls the contactor directly" : "Disconnected — selector is in AUTO";
+  if(!S.bypass && S.motor){ setMotor(false); finishRun("bypass_off"); }
+  addLog("doki/schedule1/event",{event:S.bypass?"bypass_on":"bypass_off"},"warn");
+  render();
+}
+
+function machineSwitch(on){
+  if(S.estop){ toast("E-stop is latched — the coil circuit is open."); return; }
+  if(!S.bypass){ toast("In AUTO the machine's switch is disconnected. Turn the selector to BYPASS first."); return; }
+  if(on && !S.motor){ S.sel=null; S.runSetMin=0; setMotor(true,"manual"); }
+  if(!on && S.motor){ setMotor(false); finishRun("manual_stop"); }
+  render();
+}
+
+function toast(msg){
+  const t=document.getElementById("toast");
+  t.textContent=msg; t.classList.add("show");
+  clearTimeout(t._h); t._h=setTimeout(()=>t.classList.remove("show"),2600);
+}
+
+/* ================= main loop ================= */
+setInterval(()=>{
+  const speed=+document.getElementById("speed").value;
+  const dt=0.2*speed;
+
+  if(S.motor){
+    S.runElapsed+=0.2*speed;
+    if(S.inrush>0){ S.inrush-=0.2; S.amps=14+Math.random()*5; }
+    else S.amps=4.0+Math.sin(Date.now()/700)*0.5+Math.random()*0.4;
+    S.ampSum+=S.amps; S.ampN++;
+  } else S.amps=0;
+
+  if(S.screen==="mixing"){
+    S.mixLeft-=dt;
+    if(S.mixLeft<=0){
+      setMotor(false); finishRun("completed"); buzzerPattern(3);
+      if(S.sel.rest>0){ S.restLeft=S.sel.rest*60; S.restName=S.sel.name; S.screen="resting"; }
+      else S.screen="menu";
+    }
+  }
+  if(S.screen==="resting"){
+    S.restLeft-=dt;
+    if(S.restLeft<=0){ restDone(S.restName); S.screen="menu"; }
+  }
+  if(S.bgRest){
+    S.bgRest.left-=dt;
+    if(S.bgRest.left<=0){ restDone(S.bgRest.name); S.bgRest=null; }
+  }
+  render();
+},200);
+
+function restDone(name){
+  buzzerPattern(5,2800,0.18);
+  addLog("doki/schedule1/rest_done",{device:"schedule1",preset:name.toLowerCase(),ready_at:isoNow()},"run");
+  toast(name+" dough has finished resting — ready to use.");
+}
+
+/* ================= render ================= */
+function render(){
+  const led=document.getElementById("statusLed");
+  led.className="sled "+(S.estop?"err":S.motor?"mix":(S.screen==="resting"||S.bgRest)?"rest":"ok");
+  document.getElementById("motorDot").classList.toggle("on",S.motor);
+  document.getElementById("motorTxt").textContent=S.motor?"MOTOR RUNNING":"MOTOR OFF";
+  document.getElementById("ampsTxt").textContent=S.amps.toFixed(1)+" A";
+  document.getElementById("machineCard").classList.toggle("running",S.motor);
+
+  const restLine = S.bgRest? ("REST "+S.bgRest.name+" "+fmt(S.bgRest.left)) : "";
+
+  if(S.estop){ lcd("!! E-STOP ACTIVE !!","MOTOR LOCKED OUT","","TWIST TO RELEASE",true); return; }
+  if(S.bypass){
+    lcd("** BYPASS MODE **","USE MACHINE SWITCH", S.motor?("RUNNING  "+S.amps.toFixed(1)+" A"):"MOTOR OFF","RUNS LOGGED: MANUAL");
+    return;
+  }
+  if(S.screen==="menu"){
+    if(S.menuIdx<S.menuTop) S.menuTop=S.menuIdx;
+    if(S.menuIdx>S.menuTop+1) S.menuTop=S.menuIdx-1;
+    const rows=[];
+    for(let i=S.menuTop;i<Math.min(S.menuTop+2,PRESETS.length);i++){
+      const p=PRESETS[i];
+      const t=p.mix===null? "TYPE MINS" : (String(p.mix).padStart(2)+"m +"+String(p.rest).padStart(3)+"m");
+      rows.push((i===S.menuIdx?">":" ")+p.name.padEnd(7).substring(0,7)+" "+t);
+    }
+    lcd("SELECT DOUGH  A"+String.fromCharCode(9650)+" B"+String.fromCharCode(9660), rows[0]||"", rows[1]||"", restLine||"OK:D");
+  }
+  else if(S.screen==="manual"){
+    if(S.manualStep==="mix")
+      lcd("MANUAL ENTRY  1/2","MIX MINUTES: "+S.manualBuf+"_","(1 - 90)","OK:D   BACK:C");
+    else
+      lcd("MANUAL ENTRY  2/2","REST MINS: "+S.manualBuf+"_","(0-180, 0 = NO REST)","OK:D   BACK:C");
+  }
+  else if(S.screen==="ready"){
+    const total=S.sel.mix*60+S.trim;
+    const trimStr=S.trim===0?"BASE":((S.trim>0?"+":"-")+fmt(Math.abs(S.trim)));
+    lcd(S.sel.name+"  WATER ADJ",
+        "MIX "+fmt(total)+" ("+trimStr+")",
+        restLine||(S.sel.rest?("REST "+S.sel.rest+" MIN AFTER"):"NO REST TIMER"),
+        "A:+30s B:-30s *START");
+  }
+  else if(S.screen==="mixing"){
+    lcd("MIXING: "+S.sel.name, "  TIME LEFT  "+fmt(S.mixLeft), "  LOAD  "+S.amps.toFixed(1)+" A", restLine||"STOP: #");
+  }
+  else if(S.screen==="resting"){
+    lcd("DOUGH RESTING","  "+S.restName+"  "+fmt(S.restLeft),"BUZZER WHEN READY","NEW BATCH:D  SKIP:#");
+  }
+}
+
+function resetSim(){
+  S=freshState();
+  document.getElementById("estop").classList.remove("latched");
+  document.getElementById("selector").classList.remove("bypass");
+  document.getElementById("bypassLamp").classList.remove("on");
+  document.getElementById("mswitch").classList.add("dead");
+  document.getElementById("mswitchNote").textContent="Disconnected — selector is in AUTO";
+  document.getElementById("log").innerHTML="";
+  addLog("doki/schedule1/status",{state:"online",fw:"v1.1.0",ip:"192.168.1.41"},"info");
+  render();
+}
+resetSim();
+
+/* physical keyboard convenience */
+document.addEventListener("keydown",e=>{
+  const map={"ArrowUp":"A","ArrowDown":"B","Enter":"D","Backspace":"C","Escape":"C"};
+  const k=map[e.key] || ("0123456789*#".includes(e.key)? e.key : (["a","b","c","d"].includes(e.key.toLowerCase())? e.key.toUpperCase():null));
+  if(k){ e.preventDefault(); key(k); }
+});
+</script>
+</body>
+</html>
