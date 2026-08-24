@@ -1,0 +1,51 @@
+{
+  "_comment": "Placeholder recipes carried over from the MINCECRAFT simulator. Percentages are of the captured base weight. Edit here; the panel reloads them on refresh.",
+  "min_base_g": 500,
+  "drop_alarm_g": 150,
+  "rebalance_limit": 0.10,
+  "_tolerance_note": "floor_g must be at least two scale divisions. The scale reads in 5 g steps, so the simulator's original 2 g floor was unachievable for small ingredients (salt, spice) — the reading physically cannot land that close. Raise scale_division_g and floor_g together if the real scale turns out to be coarser.",
+  "scale_division_g": 5,
+  "tolerance": { "percent": 0.02, "floor_g": 10 },
+  "pin": "1234",
+  "bases": [
+    { "id": "chicken", "name": "Chicken", "icon": "🍗" },
+    { "id": "pork",    "name": "Pork",    "icon": "🐖" },
+    { "id": "beef",    "name": "Beef",    "icon": "🥩" },
+    { "id": "mutton",  "name": "Mutton",  "icon": "🐑" },
+    { "id": "fish",    "name": "Fish",    "icon": "🐟" }
+  ],
+  "products": [
+    {
+      "id": "chips_masala", "name": "Chips – Masala",
+      "bases": ["chicken", "pork", "beef", "mutton", "fish"],
+      "ingredients": [
+        ["Binder (starch)", 18], ["Masala spice mix", 4], ["Salt", 1.8],
+        ["Ice water", 10], ["Oil", 6]
+      ]
+    },
+    {
+      "id": "chips_pepper", "name": "Chips – Pepper",
+      "bases": ["chicken", "pork", "beef", "mutton", "fish"],
+      "ingredients": [
+        ["Binder (starch)", 18], ["Black pepper mix", 3], ["Salt", 1.8],
+        ["Ice water", 10], ["Oil", 6]
+      ]
+    },
+    {
+      "id": "balls_classic", "name": "Balls – Classic",
+      "bases": ["chicken", "pork", "beef", "mutton"],
+      "ingredients": [
+        ["Rusk / breadcrumb", 12], ["Onion paste", 8], ["Ginger-garlic paste", 3],
+        ["Classic spice mix", 3.5], ["Salt", 1.6], ["Ice water", 8]
+      ]
+    },
+    {
+      "id": "balls_schezwan", "name": "Balls – Schezwan",
+      "bases": ["chicken", "pork"],
+      "ingredients": [
+        ["Rusk / breadcrumb", 12], ["Schezwan paste", 9], ["Onion paste", 6],
+        ["Salt", 1.4], ["Ice water", 8]
+      ]
+    }
+  ]
+}

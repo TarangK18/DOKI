@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=MINCECRAFT Weighing Station
+Comment=DOKI guided weighing station
+Exec=/usr/bin/python3 /home/pi/weighing_station/station.py
+Path=/home/pi/weighing_station
+Terminal=false
+X-GNOME-Autostart-enabled=true

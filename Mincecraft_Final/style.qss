@@ -1,0 +1,111 @@
+/* MINCECRAFT panel palette — carried over from the simulator.
+   bg #0d1117 · screen #101820 · ink #e9eef4 · muted #8fa0b0
+   blue #4a90d9 · green #3fbf7f · amber #e8b339 · red #e05d5d · line #2a3440
+   Font sizes are written as {N}px and multiplied by the display scale factor
+   at startup; see Panel._apply_style. */
+
+QWidget {
+    background: #0d1117;
+    color: #e9eef4;
+    font-family: "DejaVu Sans", "Segoe UI", sans-serif;
+    font-size: {15}px;
+}
+
+QDialog, QDialog > QWidget { background: #161e27; }
+
+#statusbar {
+    background: #0b1016;
+    border-bottom: 1px solid #2a3440;
+}
+#statusbar QLabel { background: transparent; color: #8fa0b0; font-size: {13}px; }
+#stationName { color: #e9eef4; font-weight: bold; letter-spacing: 2px; font-size: {14}px; }
+#link { font-weight: bold; font-size: {14}px; }
+#link[state="live"]  { color: #3fbf7f; }
+#link[state="stale"] { color: #e8b339; }
+#link[state="down"]  { color: #e05d5d; }
+
+QPushButton {
+    border: 0;
+    border-radius: 9px;
+    padding: {14}px {16}px;
+    font-size: {16}px;
+    font-weight: bold;
+    color: #ffffff;
+    background: #2c3a4a;
+}
+QPushButton:pressed  { background: #3d4f63; }
+QPushButton:disabled { color: #6b7887; background: #1c242e; }
+
+/* Attribute selectors outrank the plain :disabled rule, so every variant
+   needs its own disabled state or a dead button still looks pressable. */
+QPushButton[variant="primary"]          { background: #4a90d9; }
+QPushButton[variant="primary"]:pressed  { background: #5ea3ea; }
+QPushButton[variant="primary"]:disabled { background: #1e2c3a; color: #4f6a87; }
+QPushButton[variant="good"]             { background: #3fbf7f; color: #06281a; }
+QPushButton[variant="good"]:pressed     { background: #56d494; }
+QPushButton[variant="good"]:disabled    { background: #1f3b2d; color: #4c6b5b; }
+QPushButton[variant="warn"]             { background: #e8b339; color: #332600; }
+QPushButton[variant="danger"]           { background: #e05d5d; }
+QPushButton[variant="danger"]:disabled  { background: #3d2323; color: #7d5555; }
+QPushButton[variant="warn"]:disabled    { background: #3a2f12; color: #7d6a35; }
+QPushButton[variant="ghost"]:disabled   { background: transparent; color: #4a555f; }
+QPushButton[variant="ghost"] {
+    background: transparent;
+    border: 1px solid #2a3440;
+    color: #8fa0b0;
+}
+QPushButton[variant="ghost"]:pressed    { background: #1b232d; }
+
+#crumb   { color: #8fa0b0; font-size: {13}px; }
+#prompt  { color: #8fa0b0; font-size: {15}px; }
+#ingName { font-size: {30}px; font-weight: bold; }
+#target  { color: #8fa0b0; font-size: {14}px; }
+#stepNo  { color: #8fa0b0; font-size: {13}px; }
+#bigAdd  { font-size: {58}px; font-weight: bold; }
+#guide   { font-size: {20}px; font-weight: bold; }
+#guide[tone="under"] { color: #4a90d9; }
+#guide[tone="ok"]    { color: #3fbf7f; }
+#guide[tone="over"]  { color: #e05d5d; }
+#guide[tone="dead"]  { color: #8fa0b0; }
+#stars       { font-size: {40}px; }
+#doneHead    { color: #3fbf7f; font-size: {17}px; font-weight: bold; }
+#dialogTitle { font-size: {20}px; font-weight: bold; }
+#dialogBody  { color: #8fa0b0; font-size: {14}px; }
+#dialogTitle[tone="alarm"] { color: #e05d5d; }
+#dialogTitle[tone="warn"]  { color: #e8b339; }
+
+#pinEntry {
+    background: #0b1016;
+    border: 1px solid #2a3440;
+    border-radius: 8px;
+    font-size: {26}px;
+    letter-spacing: 8px;
+    padding: {8}px;
+}
+
+QTableWidget {
+    background: #101820;
+    gridline-color: #2a3440;
+    border: 0;
+    font-size: {14}px;
+}
+QTableWidget::item { padding: {5}px; border-bottom: 1px solid #2a3440; }
+QHeaderView::section {
+    background: #0b1016;
+    color: #8fa0b0;
+    border: 0;
+    border-bottom: 1px solid #2a3440;
+    padding: {6}px;
+    font-size: {12}px;
+    font-weight: bold;
+}
+QScrollBar:vertical { background: #101820; width: 14px; }
+QScrollBar::handle:vertical { background: #2a3440; border-radius: 7px; min-height: 40px; }
+QScrollBar::add-line, QScrollBar::sub-line { height: 0; }
+
+#simbar { background: #171208; border-top: 1px solid #3a2f12; }
+#simbar QLabel { background: transparent; color: #e8b339; font-size: {12}px; letter-spacing: 1px; }
+#simbar QPushButton {
+    background: #3a2f12; color: #e8b339;
+    padding: {8}px {12}px; font-size: {13}px;
+}
