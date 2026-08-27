@@ -46,6 +46,7 @@ class Step:
     skipped: bool = False
     scale: str = MAIN          # which scale weighs this one
     from_ratio: bool = False   # target came from the day's water ratio
+    assumed: bool = False      # recorded as the target; bench scale not readable
     witness_g: float = None    # what the main scale saw arrive, if it could see it
     verified: bool = None      # None = the main scale is too coarse to tell
 
@@ -922,12 +923,12 @@ class NumericPad(QWidget):
 class ManualAddScreen(Screen):
     """An ingredient too small for the floor scale.
 
-    The operator weighs it on the bench scale, reads the display and keys the
-    value in. That typed number is the measurement — but the floor scale still
-    sees the weight arrive when it is tipped into the tub, so it serves as a
-    witness. It cannot confirm a 2 g spice (that is below its own resolution
-    and the screen says so plainly), but it can confirm a 30 g one, and above
-    all it can catch an ingredient that never went in at all.
+    The operator weighs it on the bench scale — which the Pi cannot see — and
+    tips it into the tub. The floor scale watches it arrive, so the bar moves
+    and a missing addition is caught, but it resolves only to 1 g and cannot
+    confirm the bench scale's figure. So the recorded actual is the *target*,
+    flagged as assumed rather than measured, and the batch reconciliation at
+    the end is what catches a dosing that went badly wrong.
     """
 
     def build(self):
@@ -946,33 +947,21 @@ class ManualAddScreen(Screen):
         head.addLayout(left, 1); head.addLayout(right, 0)
         self.box.addLayout(head)
 
-        body = QHBoxLayout()
-        body.setSpacing(int(18 * s))
-
-        col = QVBoxLayout()
         self.instruction = label("", "prompt", Qt.AlignCenter, wrap=True)
-        col.addWidget(self.instruction)
-        col.addStretch(1)
-        self.entry = label("0", "bigAdd", Qt.AlignCenter)
-        col.addWidget(self.entry)
-        # Same bar as the floor-scale screen: a number alone does not show how
-        # far off target you are, or how wide the acceptable band is.
-        self.bar = ToleranceBar(s)
-        col.addWidget(self.bar)
-        self.guide = label("", "guide", Qt.AlignCenter, wrap=True)
-        col.addWidget(self.guide)
-        col.addStretch(1)
-        self.witness = label("", "target", Qt.AlignCenter, wrap=True)
-        col.addWidget(self.witness)
-        body.addLayout(col, 1)
+        self.box.addWidget(self.instruction)
+        self.box.addStretch(1)
 
-        self.pad = NumericPad(s, self.on_typed)
-        self.pad.setMaximumWidth(int(300 * s))
-        body.addWidget(self.pad, 0)
-        self.box.addLayout(body, 1)
+        self.big = label("0", "bigAdd", Qt.AlignCenter)
+        self.box.addWidget(self.big)
+        self.bar = ToleranceBar(s)
+        self.box.addWidget(self.bar)
+        self.guide = label("", "guide", Qt.AlignCenter, wrap=True)
+        self.box.addWidget(self.guide)
+        self.box.addStretch(1)
+        self.witness = label("", "target", Qt.AlignCenter, wrap=True)
+        self.box.addWidget(self.witness)
 
         self.confirm_btn = button("CONFIRM ▶", "good", self.panel.confirm_manual)
-        self.confirm_btn.setEnabled(False)
         self.action_row((button("ABORT", "danger", self.panel.confirm_abort), 0),
                         (button("SKIP (PIN)", "ghost", self.panel.skip_step), 1),
                         (self.confirm_btn, 0))
@@ -981,18 +970,16 @@ class ManualAddScreen(Screen):
         st, cfg = self.st, self.cfg
         s = st.steps[st.idx]
         spec = cfg.spec(s.scale)
-        self.pad.clear()
         self.step_no.setText(f"Ingredient {st.idx + 1} of {len(st.steps)}")
         self.ing_name.setText(s.name)
         self.target_line.setText(
-            f"Target <b style='color:{INK}'>{s.target:.2f} g</b> "
-            f"(± {cfg.tol_of(s.target):.2f} g)")
+            f"Target <b style='color:{INK}'>{grams(s.target)}</b> "
+            f"(± {grams(cfg.tol_of(s.target))})")
         self.scale_badge.setText(f"<b style='color:{AMBER}'>{spec.name}</b>")
         self.prod_line.setText(cfg.product_name(st.product))
         self.instruction.setText(
-            f"Weigh <b>{s.name}</b> on the {spec.name}, then tip it into the tub "
-            f"and key in what the {spec.name} read.")
-        self.on_typed()
+            f"Weigh <b>{grams(s.target)}</b> of <b>{s.name}</b> on the "
+            f"{spec.name}, then tip it into the tub.")
 
     def set_tone(self, tone, text):
         if self.guide.property("tone") != tone:
@@ -1000,44 +987,42 @@ class ManualAddScreen(Screen):
             restyle(self.guide)
         self.guide.setText(text)
 
-    def on_typed(self):
-        s = self.st.steps[self.st.idx]
-        tol = self.cfg.tol_of(s.target)
-        self.entry.setText((self.pad.text or "0") + " g")
-        v = self.pad.value()
-        if v is None or not self.pad.text:
-            self.bar.set_values(0, s.target, tol, "under")
-            self.set_tone("dead", "Key in the weight from the bench scale.")
-            self.confirm_btn.setEnabled(False)
-            return
-
-        if v < s.target - tol:
-            tone, msg, ok = "under", f"{s.target - v:.2f} g under target", False
-        elif v > s.target + tol:
-            tone, msg, ok = "over", (f"{v - s.target:.2f} g over target — "
-                                     f"take some off the bench scale"), False
-        else:
-            tone, msg, ok = "ok", "In tolerance — press CONFIRM", True
-        self.bar.set_values(v, s.target, tol, tone)
-        self.set_tone(tone, msg)
-        self.confirm_btn.setEnabled(ok)
-
     def tick(self, snap, live):
-        """The floor scale watching for the ingredient to arrive."""
-        s = self.st.steps[self.st.idx]
-        if not self.cfg.can_witness(s.target):
-            self.witness.setText(
-                f"Too small for the {self.cfg.main.name} to see "
-                f"(under {2 * self.cfg.main.division_g:g} g) — this entry cannot "
-                f"be cross-checked and will be logged as unverified.")
-            return
+        """The floor scale watching the ingredient arrive."""
+        st, cfg = self.st, self.cfg
+        s = st.steps[st.idx]
+        tol = cfg.tol_of(s.target)
+
         if not live:
-            self.witness.setText(f"{self.cfg.main.name} not reporting — "
-                                 f"cannot cross-check this entry.")
+            self.big.setText("—")
+            self.bar.set_values(0, s.target, tol, "under")
+            self.set_tone("dead", f"{cfg.main.name} not reporting — "
+                                  f"weigh it on the bench and press CONFIRM.")
+            self.witness.setText("")
             return
-        delta = snap["grams"] - self.st.step_zero
-        self.witness.setText(f"{self.cfg.main.name} has seen "
-                             f"{delta:+.0f} g go into the tub.")
+
+        seen = max(0.0, snap["grams"] - st.step_zero)
+        self.big.setText(f"{seen:.0f} / {grams(s.target)}")
+        # The floor scale is coarse, so judge arrival against what it can
+        # actually resolve rather than the bench scale's tighter band.
+        slack = cfg.witness_tolerance(s.target)
+        if seen < s.target - slack:
+            tone, msg = "under", f"{s.target - seen:.0f} g still to go in"
+        elif seen > s.target + slack:
+            tone, msg = "over", f"{seen - s.target:.0f} g more than expected"
+        else:
+            tone, msg = "ok", "That looks right — press CONFIRM"
+        self.bar.set_values(seen, s.target, tol, tone)
+        self.set_tone(tone, msg)
+
+        if not cfg.can_witness(s.target):
+            self.witness.setText(
+                f"At {grams(s.target)} this is below what the {cfg.main.name} "
+                f"can see, so nothing here can be cross-checked.")
+        else:
+            self.witness.setText(
+                f"{cfg.main.name} has seen {seen:+.0f} g arrive. The recorded "
+                f"weight will be the {grams(s.target)} target, not this.")
 
 
 class DoneScreen(Screen):
@@ -1092,10 +1077,10 @@ class DoneScreen(Screen):
                 colour = GREEN if abs(dev) <= cfg.tol_of(s.target) else RED
             spec = cfg.spec(s.scale)
             where = spec.name if spec else "—"
+            if s.assumed:
+                where += " (assumed)"
             if s.verified is False:
                 where += " ⚠"
-            elif s.verified is None and s.scale == SMALL:
-                where += " (unverified)"
             for c, text in enumerate([str(i + 1), s.name, where,
                                       f"{fmt_g(s.target)} g", actual, dev_text]):
                 item = QTableWidgetItem(text)
@@ -1481,38 +1466,41 @@ class Panel(QMainWindow):
         step.actual = self.current_added()
         step.witness_g = step.actual      # weighed on the main scale directly
         step.verified = True
+        step.assumed = False
         self.next_step()
 
     def confirm_manual(self):
-        """Accept a bench-scale entry, with the floor scale as corroboration."""
+        """Accept a bench-weighed ingredient.
+
+        There is no keypad, so the bench scale's reading never reaches the Pi.
+        The target is recorded as the actual and flagged `assumed`, and the
+        floor scale is still asked whether something of roughly that size went
+        in — which is the one thing it can genuinely answer.
+        """
         step = self.st.steps[self.st.idx]
-        typed = self.screens["MANUAL"].pad.value()
-        if typed is None:
-            return
         snap = self.state.snapshot()
         observed = (snap["grams"] - self.st.step_zero) if snap["fresh"] else None
 
+        step.actual = step.target
+        step.assumed = True
+        step.witness_g = observed
+
         if not self.cfg.can_witness(step.target) or observed is None:
-            # Below the floor scale's resolution, or it is not reporting. Record
-            # the entry as unverified rather than implying a check happened.
-            step.actual, step.witness_g, step.verified = typed, observed, None
+            step.verified = None       # nothing could be checked; say so
             self.next_step()
             return
 
-        if abs(observed - typed) > self.cfg.witness_tolerance(typed):
-            dlg = WitnessDialog(self, step, typed, observed, self.cfg.main.name)
-            result = self._dialog(dlg)
-            if result != WitnessDialog.ACCEPT:
-                self.screens["MANUAL"].pad.clear()
+        if abs(observed - step.target) > self.cfg.witness_tolerance(step.target):
+            dlg = WitnessDialog(self, step, step.target, observed,
+                                self.cfg.main.name)
+            if self._dialog(dlg) != WitnessDialog.ACCEPT:
                 return
-            if not self.ask_pin("Accept an entry the floor scale disagrees with "
-                                "(will be logged)."):
-                self.screens["MANUAL"].pad.clear()
+            if not self.ask_pin("Accept an addition the floor scale disagrees "
+                                "with (will be logged)."):
                 return
             step.verified = False
         else:
             step.verified = True
-        step.actual, step.witness_g = typed, observed
         self.next_step()
 
     def next_step(self):
@@ -1622,6 +1610,7 @@ class Panel(QMainWindow):
                        "actual_g": None if s.actual is None else round(s.actual, 2),
                        "skipped": s.skipped,
                        "weighed_on": s.scale,
+                       "assumed": s.assumed,
                        "witness_g": None if s.witness_g is None else round(s.witness_g, 1),
                        "verified": s.verified} for s in st.steps],
             "reconciliation": self.reconcile(),

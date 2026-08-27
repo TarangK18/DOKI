@@ -65,13 +65,15 @@ def build_consumption(wb, batches):
     ws["A1"] = "Material used, per ingredient per batch"
     ws["A1"].font = TITLE
     ws["A2"] = ("One row per ingredient per batch. Rebuilt from batches.jsonl — "
-                "edits here are lost on the next rebuild.")
+                "edits here are lost on the next rebuild. 'assumed' means the "
+                "figure is the recipe target, because the bench scale is not "
+                "wired to the Pi and its reading never reached it.")
     ws["A2"].font = MUTED
     header(ws, 4,
            ["Date", "Batch", "Product", "Base", "Base weight (g)", "Ingredient",
             "Target (g)", "Actual (g)", "Deviation (g)", "Weighed on",
-            "Verified", "Water ratio"],
-           [12, 10, 16, 10, 14, 24, 11, 11, 13, 13, 11, 11])
+            "Measured?", "Verified", "Water ratio"],
+           [12, 10, 16, 10, 14, 24, 11, 11, 13, 13, 12, 11, 11])
 
     row = 5
     for b in batches:
@@ -83,13 +85,21 @@ def build_consumption(wb, batches):
             verified = s.get("verified")
             vtext = {True: "yes", False: "DISPUTED", None: "not checkable"}.get(
                 verified, "")
+            # An assumed figure is the target, not a measurement — inventory
+            # must be able to tell the two apart.
+            measured = "assumed" if s.get("assumed") else "measured"
             cells = [day, b.get("batch_no"), b.get("product"), b.get("base"),
                      b.get("base_weight_g"), s.get("name"), target, actual, dev,
-                     s.get("weighed_on"), vtext, b.get("water_ratio")]
+                     s.get("weighed_on"), measured, vtext, b.get("water_ratio")]
             for i, v in enumerate(cells, start=1):
                 c = ws.cell(row=row, column=i, value=v)
-                c.font = RED if (verified is False and i == 11) else BODY
-                if i in (5, 7, 8, 9, 12):
+                if verified is False and i == 12:
+                    c.font = RED
+                elif s.get("assumed") and i == 11:
+                    c.font = MUTED
+                else:
+                    c.font = BODY
+                if i in (5, 7, 8, 9, 13):
                     c.number_format = "#,##0.00" if i in (7, 8, 9) else "#,##0.000"
             row += 1
 

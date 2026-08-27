@@ -54,7 +54,7 @@ for free. For a console-only boot with no desktop, run it under
 | `run-demo.bat` / `run-demo.sh` | one-click demo launcher (Windows / Linux) |
 | `daily.json` | the day's water ratio (created when a supervisor sets it) |
 | `tests/test_scale.py` | 75 tests, incl. a virtual serial port and the entry point |
-| `tests/test_panel.py` | 87-check headless walkthrough of a whole batch |
+| `tests/test_panel.py` | 91-check headless walkthrough of a whole batch |
 | `tests/test_fake_scale.py` | 10 tests driving the real reader over a virtual port |
 
 `scale.py` imports nothing from `panel.py` and knows nothing about Qt. That
@@ -209,7 +209,7 @@ small panel in the corner.
 
 ```bash
 python3 tests/test_scale.py                              # 75 tests
-QT_QPA_PLATFORM=offscreen python3 tests/test_panel.py    # 87 checks + screenshots
+QT_QPA_PLATFORM=offscreen python3 tests/test_panel.py    # 91 checks + screenshots
 python3 tests/test_fake_scale.py                         # 10 over a virtual port
 ```
 
@@ -308,22 +308,33 @@ mid-batch.
 
 ### The bench scale is not wired to the Pi
 
-The operator reads its display and keys the value in, so that typed number is
-the measurement. But the ingredient is then tipped into the tub, and **the
-floor scale sees it arrive** — so it serves as a witness:
+There is **no keypad**. A typed number is only ever a claim about what the bench
+scale showed, and the Pi has no way to check it, so the station does not ask for
+one. The operator weighs the ingredient on the bench, tips it into the tub, and
+**the floor scale sees it arrive** — that is the only figure the Pi can vouch
+for, and it drives the same tolerance bar as a floor-scale step, so the addition
+is visible as it happens rather than confirmed blind.
 
-- Above 2 g (two floor-scale divisions) the panel compares the typed value
-  against the weight it saw appear, and challenges a mismatch. It cannot be
-  fooled by an ingredient that was never added.
-- Below that it says so plainly — "too small for the floor scale to see, this
-  entry cannot be cross-checked" — and logs the step as unverified rather than
+What gets recorded is the **recipe target**, flagged `assumed` rather than
+`measured`. The screen says so while the operator is standing there: *"The
+recorded weight will be the 148.5 g target, not this."* The consumption workbook
+carries a **Measured?** column so inventory can tell a weighed figure from an
+assumed one and never treats the two as the same evidence.
+
+The floor scale still acts as a witness:
+
+- Above 2 g (two floor-scale divisions) it compares what it saw arrive against
+  the target and challenges a mismatch behind the PIN. It cannot be fooled by an
+  ingredient that was never added.
+- Below that it says so plainly — "below what the Floor scale can see, so
+  nothing here can be cross-checked" — and logs the step unverified rather than
   implying a check that never happened.
 - At the end of the batch the **total** reconciles: individually a 2 g spice is
   invisible, collectively the bench-weighed ingredients are not. It will not
   say which entry was wrong, but it will say that one was.
 
-Every batch record carries `weighed_on`, `witness_g` and `verified` per
-ingredient, plus the batch reconciliation.
+Every batch record carries `weighed_on`, `assumed`, `witness_g` and `verified`
+per ingredient, plus the batch reconciliation.
 
 ## Open — needs a human decision
 

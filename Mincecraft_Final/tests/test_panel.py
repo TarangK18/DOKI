@@ -210,40 +210,27 @@ def main():
             break
 
         if route == SMALL:
-            # Bench scale: the operator keys the value in, and the floor scale
-            # sees it arrive when it is tipped into the tub.
+            # Bench scale: no keypad. The operator weighs it there and tips it
+            # in; the floor scale watches it arrive.
             check_once = not shot_manual
             if check_once:
                 check("a bench-scale ingredient opens the manual screen",
                       win.current == "MANUAL")
                 check("the manual screen names the bench scale",
                       "Bench scale" in man.instruction.text())
-                check("CONFIRM is locked before anything is keyed in",
-                      not man.confirm_btn.isEnabled())
-                for ch in "1":
-                    man.pad.press(ch)
-                pump(app, 0.2)
-                check("an under-target entry keeps CONFIRM locked",
-                      not man.confirm_btn.isEnabled() and "under" in man.guide.text())
-                check("and the bar shows it short of the band",
-                      man.bar.tone == "under" and man.bar.added < man.bar.target)
-                man.pad.clear()
-            # tip it in, then key the bench-scale reading
+                check("there is no keypad on the bench screen",
+                      not hasattr(man, "pad"))
+                check("the bar starts empty", man.bar.added == 0)
             sim.add(target)
             settle(app, state)
-            for ch in f"{target:.1f}":
-                man.pad.press(ch)
-            pump(app, 0.3)
             if check_once:
-                check("an in-tolerance entry arms CONFIRM",
-                      man.confirm_btn.isEnabled())
-                check("the bench screen shows the same tolerance bar",
-                      abs(man.bar.added - target) < 0.5
-                      and abs(man.bar.target - target) < 1e-6
-                      and man.bar.tone == "ok")
-                check("the floor scale reports what it witnessed",
-                      "has seen" in man.witness.text()
-                      or "Too small" in man.witness.text())
+                check("the bar tracks what the floor scale sees arrive",
+                      abs(man.bar.added - target) <= max(2, target * 0.1))
+                check("and it reads as in the band once it is in",
+                      man.bar.tone == "ok" and "CONFIRM" in man.guide.text())
+                check("the screen says the recorded weight will be the target",
+                      "target, not this" in man.witness.text()
+                      or "nothing here can be cross-checked" in man.witness.text())
                 shot(win, "14-manual-entry.png")
                 shot_manual = True
             man.confirm_btn.click()
@@ -282,6 +269,12 @@ def main():
           all(abs(s.actual - s.target) <= cfg.tol_of(s.target) for s in win.st.steps))
     check("bench-scale entries were witnessed by the floor scale where possible",
           all(s.verified is not False for s in win.st.steps))
+    check("bench-scale actuals are flagged as assumed, not measured",
+          all(s.assumed for s in win.st.steps if s.scale == SMALL))
+    check("floor-scale actuals are not",
+          all(not s.assumed for s in win.st.steps if s.scale == MAIN))
+    check("an assumed actual equals its target",
+          all(s.actual == s.target for s in win.st.steps if s.assumed))
     check("the batch total reconciles", win.reconcile().get("ok"))
 
     rows = batches.recent()
@@ -291,6 +284,9 @@ def main():
           and all(s["actual_g"] is not None for s in rows[0]["steps"]))
     check("the log records which scale weighed each ingredient",
           rows and all(s["weighed_on"] in (MAIN, SMALL) for s in rows[0]["steps"]))
+    check("the log distinguishes measured from assumed",
+          rows and any(s["assumed"] for s in rows[0]["steps"])
+          and any(not s["assumed"] for s in rows[0]["steps"]))
     check("the log carries the reconciliation",
           rows and rows[0]["reconciliation"].get("ok") is True)
     check("the log records the product", rows and rows[0]["product"] == "teriyaki_jerky")
@@ -375,39 +371,43 @@ def main():
     shot(win, "11-no-scale.png")
 
     # ------------------------------------------- the witness catching a lie
+    # The stale-feed checks above killed the reader. The witness only exists
+    # while the floor scale is reporting, so bring it back before testing it —
+    # with a dead feed the bench screen says "not reporting" and nothing else,
+    # which would be checking the wrong branch.
     from panel import WitnessDialog
     from panel import Step as PStep
+    _t2, stop = start_reader(state, sim=sim)
+    pump(app, 1.0)
     sim.zero(); pump(app, 1.5)
     win.st.steps = [PStep("Soy sauce", 4.64, 148.5, scale=SMALL)]
     win.st.idx = 0
     win.st.step_zero = state.snapshot()["grams"] or 0.0
     win.show_screen("MANUAL")
-    pump(app, 0.5)
-    # Key in 128 g without ever tipping anything in.
-    for ch in "148":
-        man.pad.press(ch)
-    pump(app, 0.4)
+    pump(app, 0.6)
+    # Nothing tipped in at all.
     observed = (state.snapshot()["grams"] or 0) - win.st.step_zero
-    typed = man.pad.value()
+    target = win.st.steps[0].target
     check("the floor scale can witness an addition this size",
-          cfg.can_witness(148.5))
-    check("an entry with nothing tipped in exceeds the witness tolerance",
-          abs(observed - typed) > cfg.witness_tolerance(typed))
-    wd = WitnessDialog(win, win.st.steps[0], typed, observed, cfg.main.name)
+          cfg.can_witness(target))
+    check("nothing arriving exceeds the witness tolerance",
+          abs(observed - target) > cfg.witness_tolerance(target))
+    check("and the bar shows it short of the band", man.bar.tone == "under")
+    wd = WitnessDialog(win, win.st.steps[0], target, observed, cfg.main.name)
     wd.show(); pump(app, 0.3)
     check("the witness dialog says the floor scale saw nothing",
           "saw nothing" in wd.findChild(QLabel, "dialogTitle").text())
     shot(wd, "15-witness.png")
     wd.close()
-    man.pad.clear()
 
     # And the honest case: too small for the floor scale to judge at all.
-    # At a 1 g floor scale only a sub-2 g addition is beyond witnessing.
     win.st.steps = [PStep("Bhut jholokia", 0.01, 1.0, scale=SMALL)]
+    win.st.idx = 0
     win.show_screen("MANUAL")
-    pump(app, 0.5)
+    pump(app, 1.0)
     check("a tiny ingredient admits it cannot be cross-checked",
-          not cfg.can_witness(1.0) and "unverified" in man.witness.text())
+          not cfg.can_witness(1.0)
+          and "nothing here can be cross-checked" in man.witness.text())
 
     # ------------------------------- recipe the scale cannot actually weigh
     from panel import Step
@@ -427,9 +427,6 @@ def main():
     check("a weighable recipe still starts normally", rev2.start_btn.isEnabled())
 
     # ------------------------------------------------------- the sim rig
-    # The stale-feed checks above killed the reader; the rig needs it back.
-    _t2, stop = start_reader(state, sim=sim)
-    pump(app, 1.0)
     win.st.reset()
     win.show_screen("HOME")
     sim.zero()
