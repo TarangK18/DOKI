@@ -422,7 +422,6 @@ class Config:
         self.division_g = self.main.division_g   # kept: "the station's scale"
         self._crossover = scales.get("crossover_g")
         self.pin = str(data["pin"])
-        self.bases = data["bases"]
         self.products = data["products"]
         self._tol_pct = data["tolerance"]["percent"]
         self._tol_floor = data["tolerance"]["floor_g"]
@@ -566,23 +565,51 @@ class Config:
         saying so beats implying a check that never happened."""
         return target >= 2 * self.main.division_g
 
-    def base(self, base_id):
-        return next(b for b in self.bases if b["id"] == base_id)
-
-    def base_name(self, base_id):
-        return self.base(base_id)["name"]
-
-    def base_icon(self, base_id):
-        return self.base(base_id)["icon"]
-
     def product(self, product_id):
         return next(p for p in self.products if p["id"] == product_id)
 
     def product_name(self, product_id):
         return self.product(product_id)["name"]
 
-    def products_for(self, base_id):
-        return [p for p in self.products if base_id in p["bases"]]
+    def meat_of(self, product_id):
+        """Which animal this product is made from.
+
+        Asked of nobody: the product implies it. None where it has not been
+        decided, in which case the batch records it as unspecified rather than
+        guessing.
+        """
+        return self.product(product_id).get("meat")
+
+    def is_draft(self, product_id):
+        """A product with no ingredients yet. Shown, but cannot be started —
+        an empty recipe reaching the floor is worse than a greyed-out button."""
+        p = self.product(product_id)
+        return bool(p.get("draft")) or not p.get("ingredients")
+
+    def min_base_for(self, product_id):
+        """Smallest batch of meat this product can actually be made in.
+
+        The smallest ingredient sets it: bhut jholokia at 0.025 % needs an
+        800 g batch before it reaches two divisions of the bench scale, so a
+        500 g Teriyaki batch is not a tolerance problem, it is unmakeable.
+        Better to say so at the scale than to fail at recipe review.
+        """
+        floor = self.min_base_g
+        if self.small is None:
+            return floor
+        for _, pct in self.product(product_id)["ingredients"]:
+            if pct > 0:
+                floor = max(floor, 2 * self.small.division_g / (pct / 100.0))
+        return floor
+
+    @property
+    def any_water_gated(self):
+        """Whether the daily ratio locks production at all.
+
+        If no recipe derives its water from flour, holding the line for a
+        ratio nobody uses is friction with no safety behind it.
+        """
+        return any(self.water_gated(p["id"]) for p in self.products)
 
     # -- water, which the recipe cannot fix ---------------------------------
 

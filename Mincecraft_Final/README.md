@@ -51,8 +51,8 @@ for free. For a console-only boot with no desktop, run it under
 | `fake_scale.py` | virtual serial port streaming real frames, for testing with no scale |
 | `run-demo.bat` / `run-demo.sh` | one-click demo launcher (Windows / Linux) |
 | `daily.json` | the day's water ratio (created when a supervisor sets it) |
-| `tests/test_scale.py` | 60 tests, incl. a virtual serial port |
-| `tests/test_panel.py` | 77-check headless walkthrough of a whole batch |
+| `tests/test_scale.py` | 68 tests, incl. a virtual serial port and the entry point |
+| `tests/test_panel.py` | 81-check headless walkthrough of a whole batch |
 | `tests/test_fake_scale.py` | 10 tests driving the real reader over a virtual port |
 
 `scale.py` imports nothing from `panel.py` and knows nothing about Qt. That
@@ -132,12 +132,22 @@ reconnects on its own every 2 s until the port comes back.
 
 ## What the panel does
 
-1. **START BATCH** → pick base meat.
-2. **Capture** the base weight — armed only when the reading is live, stable
-   and above `min_base_g`.
-3. Pick the **product**; ingredient targets are computed as percentages of the
-   captured base.
-4. **Review** the recipe, then add ingredients one at a time.
+1. **START BATCH** → pick the finished product. Eight of them, the vinegar
+   bath among them. The meat is not asked: each product carries its own in
+   `recipes.json`, so there is one decision at the start of a batch, not two.
+2. **Weigh the meat** — CAPTURE arms only when the reading is live, stable and
+   above that recipe's own minimum batch (see below).
+3. **Review** the recipe, then add ingredients one at a time.
+
+A recipe with no ingredients yet shows on the product screen but cannot be
+selected, and the screen says which ones and where to fill them in. An empty
+recipe reaching the floor is worse than a greyed-out button.
+
+**Each recipe has its own minimum batch size.** The smallest ingredient sets
+it: bhut jholokia at 0.025 % of the meat does not reach two divisions of the
+bench scale until the batch is 800 g, so a 500 g Teriyaki batch is not a
+tolerance problem — it is unmakeable. The capture screen says so at the scale
+rather than letting it fail at recipe review.
 
 Each ingredient step takes a **software tare** at the moment it opens, so the
 operator adds cumulatively into one container and the panel shows only what
@@ -164,8 +174,8 @@ small panel in the corner.
 ## Verify
 
 ```bash
-python3 tests/test_scale.py                              # 60 tests
-QT_QPA_PLATFORM=offscreen python3 tests/test_panel.py    # 77 checks + screenshots
+python3 tests/test_scale.py                              # 68 tests
+QT_QPA_PLATFORM=offscreen python3 tests/test_panel.py    # 81 checks + screenshots
 python3 tests/test_fake_scale.py                         # 10 over a virtual port
 ```
 
@@ -197,6 +207,11 @@ Two guards, because a mistyped ratio is the obvious failure mode:
 The entry screen shows the previous day's value and, live as they type, the
 grams of water it implies for each recipe — so a wrong number is visible before
 it is committed rather than after.
+
+The lock only bites when a recipe actually derives its water from flour.
+Teriyaki and the vinegar bath use no flour, so today nothing is held for a
+ratio nobody uses — the home screen says as much. It will lock once a flour
+recipe is entered.
 
 **Expiry is at each new production day.** A batch already running is not
 interrupted: the ratio is captured into the batch when its targets are computed,

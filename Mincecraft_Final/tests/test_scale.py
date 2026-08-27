@@ -222,53 +222,97 @@ class TestConfig(unittest.TestCase):
         self.assertFalse(self.cfg.can_witness(6))
         self.assertTrue(self.cfg.can_witness(50))
 
-    def test_every_product_names_valid_bases(self):
-        ids = {b["id"] for b in self.cfg.bases}
+    def test_products_carry_a_name_and_an_id(self):
         for p in self.cfg.products:
-            self.assertTrue(set(p["bases"]) <= ids, p["id"])
+            self.assertTrue(p["id"] and p["name"], p)
 
-    def test_no_shipped_recipe_is_unweighable_at_any_allowed_base(self):
+    def test_a_recipe_with_no_ingredients_is_a_draft(self):
+        drafts = [p["id"] for p in self.cfg.products if self.cfg.is_draft(p["id"])]
+        defined = [p["id"] for p in self.cfg.products if not self.cfg.is_draft(p["id"])]
+        self.assertTrue(defined, "at least one recipe must be usable")
+        for pid in drafts:
+            self.assertFalse(self.cfg.product(pid)["ingredients"])
+
+    def test_meat_is_carried_on_the_product_not_asked(self):
+        # None is allowed and means "not decided yet"; the batch records that
+        # rather than guessing an animal.
+        for p in self.cfg.products:
+            meat = self.cfg.meat_of(p["id"])
+            self.assertTrue(meat is None or isinstance(meat, str))
+
+    def test_every_recipe_is_weighable_at_its_own_minimum_batch(self):
         from panel_stub import Step
-        for base in (self.cfg.min_base_g, 1000, 3200, 8000):
-            for p in self.cfg.products:
+        for p in self.cfg.products:
+            if self.cfg.is_draft(p["id"]):
+                continue
+            floor = self.cfg.min_base_for(p["id"])
+            for base in (floor, floor * 1.5, 3200, 8000):
                 steps = [Step(n, pct, base * pct / 100) for n, pct in p["ingredients"]]
                 bad = self.cfg.unweighable_steps(steps)
-                self.assertFalse(bad, f"{p['id']} at {base} g: {bad}")
+                self.assertFalse(bad, f"{p['id']} at {base:.0f} g: {bad}")
 
-    def test_products_for_filters_by_base(self):
-        self.assertEqual(len(self.cfg.products_for("chicken")), 4)
-        self.assertEqual(len(self.cfg.products_for("fish")), 2)
+    def test_a_recipe_with_a_tiny_ingredient_needs_a_bigger_batch(self):
+        # Bhut jholokia at 0.025 % does not reach two bench-scale divisions
+        # until the batch is 800 g, so Teriyaki cannot be made at the 500 g
+        # global minimum.
+        self.assertGreater(self.cfg.min_base_for("teriyaki_jerky"), self.cfg.min_base_g)
+        self.assertAlmostEqual(self.cfg.min_base_for("teriyaki_jerky"), 800.0, places=3)
+
+    def test_a_recipe_with_no_tiny_ingredient_uses_the_global_minimum(self):
+        self.assertEqual(self.cfg.min_base_for("vinegar_bath"), self.cfg.min_base_g)
 
 
 class TestWaterRatio(unittest.TestCase):
     """The day's water/flour ratio, and the gate it drives."""
 
+    GATED = {
+        "id": "gated_test", "name": "Gated Test", "meat": "Chicken",
+        "ingredients": [["Binder (starch)", 18.0], ["Ice water", 10.0],
+                        ["Salt", 1.8]],
+        "flour_ingredient": "Binder (starch)",
+        "water_ingredient": "Ice water",
+    }
+
     def setUp(self):
+        import copy
         import tempfile
-        self.cfg = Config.load()
+        base = Config.load()
+        data = copy.deepcopy(base.data)
+        # No shipped recipe derives water from flour yet, so the gate is
+        # exercised against a recipe that does.
+        data["products"] = data["products"] + [copy.deepcopy(self.GATED)]
+        self.cfg = Config(data)
         self.dir = tempfile.mkdtemp()
         self.daily = DailyRatio(os.path.join(self.dir, "daily.json"), self.cfg)
 
     # -- recipe wiring -----------------------------------------------------
 
     def test_recipes_naming_flour_and_water_are_gated(self):
-        self.assertTrue(self.cfg.water_gated("chips_masala"))
-        self.assertEqual(self.cfg.flour_of("chips_masala"), "Binder (starch)")
-        self.assertEqual(self.cfg.water_of("chips_masala"), "Ice water")
+        self.assertTrue(self.cfg.water_gated("gated_test"))
+        self.assertEqual(self.cfg.flour_of("gated_test"), "Binder (starch)")
+        self.assertEqual(self.cfg.water_of("gated_test"), "Ice water")
 
     def test_nominal_ratio_comes_from_the_recipe_percentages(self):
         # 10 % water over 18 % binder.
-        self.assertAlmostEqual(self.cfg.nominal_water_ratio("chips_masala"),
+        self.assertAlmostEqual(self.cfg.nominal_water_ratio("gated_test"),
                                10 / 18, places=6)
 
     def test_shipped_recipes_validate(self):
-        self.assertEqual(self.cfg.validate_products(), [])
+        self.assertEqual(Config.load().validate_products(), [])
+
+    def test_nothing_shipped_is_water_gated_yet(self):
+        # Teriyaki and the vinegar bath use no flour, so the daily ratio does
+        # not lock the line today. It will once a flour recipe is entered.
+        self.assertFalse(Config.load().any_water_gated)
+
+    def test_the_gate_applies_once_a_flour_recipe_exists(self):
+        self.assertTrue(self.cfg.any_water_gated)
 
     def test_half_specified_pair_is_refused(self):
         import copy
         data = copy.deepcopy(self.cfg.data)
         for p in data["products"]:
-            if p["id"] == "chips_masala":
+            if p["id"] == "gated_test":
                 del p["water_ingredient"]
         problems = Config(data).validate_products()
         self.assertTrue(any("not the other" in p for p in problems))
@@ -277,7 +321,7 @@ class TestWaterRatio(unittest.TestCase):
         import copy
         data = copy.deepcopy(self.cfg.data)
         for p in data["products"]:
-            if p["id"] == "chips_masala":
+            if p["id"] == "gated_test":
                 p["flour_ingredient"] = "Unobtainium"
         problems = Config(data).validate_products()
         self.assertTrue(any("not in its ingredient list" in p for p in problems))
@@ -286,7 +330,7 @@ class TestWaterRatio(unittest.TestCase):
 
     def test_water_target_is_ratio_times_flour(self):
         base, ratio = 3200, 0.55
-        flour = base * self.cfg.pct_of("chips_masala", "Binder (starch)") / 100
+        flour = base * self.cfg.pct_of("gated_test", "Binder (starch)") / 100
         self.assertAlmostEqual(flour * ratio, 316.8, places=4)
 
     # -- guards ------------------------------------------------------------
@@ -309,11 +353,11 @@ class TestWaterRatio(unittest.TestCase):
     def test_plausible_but_wrong_ratio_is_flagged_off_nominal(self):
         # Inside the hard bounds, so only the nominal check can catch it.
         self.assertIsNone(self.daily.validate(0.75))
-        off = self.daily.off_nominal(0.75, "chips_masala")
+        off = self.daily.off_nominal(0.75, "gated_test")
         self.assertGreater(off, self.cfg.water_off_nominal_warn)
 
     def test_a_normal_ratio_is_not_flagged(self):
-        off = self.daily.off_nominal(0.55, "chips_masala")
+        off = self.daily.off_nominal(0.55, "gated_test")
         self.assertLess(abs(off), self.cfg.water_off_nominal_warn)
 
     # -- the daily gate ----------------------------------------------------
@@ -362,6 +406,41 @@ class TestWaterRatio(unittest.TestCase):
         with open(self.daily.path, "w") as fh:
             fh.write("{not json")
         self.assertFalse(self.daily.is_set())
+
+
+class TestStationEntryPoint(unittest.TestCase):
+    """station.py wiring — the path no unit test reaches into."""
+
+    def run_station(self, *args, timeout=12):
+        import subprocess
+        env = dict(os.environ, QT_QPA_PLATFORM="offscreen")
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        proc = subprocess.Popen(
+            [sys.executable, "-u", os.path.join(root, "station.py"), *args],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
+        try:
+            out, err = proc.communicate(timeout=timeout)
+            return proc.returncode, out, err
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            out, err = proc.communicate()
+            return None, out, err          # still running == started cleanly
+
+    def test_help_works_without_qt(self):
+        code, out, err = self.run_station("--help")
+        self.assertEqual(code, 0, err)
+        self.assertIn("--demo", out)
+
+    def test_demo_starts_and_reports_what_is_usable(self):
+        code, out, err = self.run_station("--demo", timeout=8)
+        self.assertIsNone(code, f"exited early:\n{err}")
+        self.assertIn("recipes with ingredients", out)
+        self.assertNotIn("Traceback", err)
+
+    def test_sim_starts(self):
+        code, out, err = self.run_station("--sim", "--windowed", timeout=8)
+        self.assertIsNone(code, f"exited early:\n{err}")
+        self.assertNotIn("Traceback", err)
 
 
 class TestSerialEndToEnd(unittest.TestCase):

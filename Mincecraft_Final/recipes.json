@@ -30,173 +30,130 @@
     "floor_g": 10
   },
   "pin": "1234",
-  "bases": [
-    {
-      "id": "chicken",
-      "name": "Chicken",
-      "icon": "🍗"
-    },
-    {
-      "id": "pork",
-      "name": "Pork",
-      "icon": "🐖"
-    },
-    {
-      "id": "beef",
-      "name": "Beef",
-      "icon": "🥩"
-    },
-    {
-      "id": "mutton",
-      "name": "Mutton",
-      "icon": "🐑"
-    },
-    {
-      "id": "fish",
-      "name": "Fish",
-      "icon": "🐟"
-    }
-  ],
   "products": [
     {
-      "id": "chips_masala",
-      "name": "Chips – Masala",
-      "bases": [
-        "chicken",
-        "pork",
-        "beef",
-        "mutton",
-        "fish"
-      ],
+      "id": "vinegar_bath",
+      "name": "Vinegar Bath",
+      "meat": null,
       "ingredients": [
         [
-          "Binder (starch)",
-          18
+          "White vinegar",
+          1.5
         ],
         [
-          "Masala spice mix",
-          4
-        ],
-        [
-          "Salt",
-          1.8
-        ],
-        [
-          "Ice water",
-          10
-        ],
-        [
-          "Oil",
-          6
+          "Papain",
+          0.2
         ]
-      ],
-      "flour_ingredient": "Binder (starch)",
-      "water_ingredient": "Ice water"
+      ]
     },
     {
-      "id": "chips_pepper",
-      "name": "Chips – Pepper",
-      "bases": [
-        "chicken",
-        "pork",
-        "beef",
-        "mutton",
-        "fish"
-      ],
+      "id": "teriyaki_jerky",
+      "name": "Teriyaki Jerky",
+      "meat": null,
       "ingredients": [
         [
-          "Binder (starch)",
-          18
+          "Teriyaki sauce",
+          7.3
         ],
         [
-          "Black pepper mix",
-          3
+          "Soy sauce",
+          4.64
         ],
         [
-          "Salt",
-          1.8
+          "Honey",
+          4.2
         ],
         [
-          "Ice water",
-          10
+          "Tamarind pulp",
+          2.54
         ],
         [
-          "Oil",
-          6
+          "White vinegar",
+          2.54
+        ],
+        [
+          "Jaggery powder",
+          2.32
+        ],
+        [
+          "Sea salt",
+          0.75
+        ],
+        [
+          "Sesame seed",
+          0.45
+        ],
+        [
+          "Verdad",
+          0.2
+        ],
+        [
+          "Onion powder",
+          0.14
+        ],
+        [
+          "Chilli flake",
+          0.13
+        ],
+        [
+          "Black pepper",
+          0.11
+        ],
+        [
+          "Yeast extract",
+          0.1
+        ],
+        [
+          "Garlic powder",
+          0.06
+        ],
+        [
+          "Bhut jholokia",
+          0.025
         ]
-      ],
-      "flour_ingredient": "Binder (starch)",
-      "water_ingredient": "Ice water"
+      ]
     },
     {
-      "id": "balls_classic",
-      "name": "Balls – Classic",
-      "bases": [
-        "chicken",
-        "pork",
-        "beef",
-        "mutton"
-      ],
-      "ingredients": [
-        [
-          "Rusk / breadcrumb",
-          12
-        ],
-        [
-          "Onion paste",
-          8
-        ],
-        [
-          "Ginger-garlic paste",
-          3
-        ],
-        [
-          "Classic spice mix",
-          3.5
-        ],
-        [
-          "Salt",
-          1.6
-        ],
-        [
-          "Ice water",
-          8
-        ]
-      ],
-      "flour_ingredient": "Rusk / breadcrumb",
-      "water_ingredient": "Ice water"
+      "id": "gochujangh_jerky",
+      "name": "Gochujangh Jerky",
+      "meat": null,
+      "ingredients": [],
+      "draft": true
     },
     {
-      "id": "balls_schezwan",
-      "name": "Balls – Schezwan",
-      "bases": [
-        "chicken",
-        "pork"
-      ],
-      "ingredients": [
-        [
-          "Rusk / breadcrumb",
-          12
-        ],
-        [
-          "Schezwan paste",
-          9
-        ],
-        [
-          "Onion paste",
-          6
-        ],
-        [
-          "Salt",
-          1.4
-        ],
-        [
-          "Ice water",
-          8
-        ]
-      ],
-      "flour_ingredient": "Rusk / breadcrumb",
-      "water_ingredient": "Ice water"
+      "id": "pepper_jerky",
+      "name": "Pepper Jerky",
+      "meat": null,
+      "ingredients": [],
+      "draft": true
+    },
+    {
+      "id": "karnatka_nati_jerky",
+      "name": "Karnatka Nati Jerky",
+      "meat": "Country chicken",
+      "ingredients": [],
+      "draft": true
+    },
+    {
+      "id": "kerala_fry_jerky",
+      "name": "Kerala fry Jerky",
+      "meat": null,
+      "ingredients": [],
+      "draft": true
+    },
+    {
+      "id": "mughlai_jerky",
+      "name": "Mughlai Jerky",
+      "meat": null,
+      "ingredients": [],
+      "draft": true
+    },
+    {
+      "id": "masala_jerky",
+      "name": "Masala Jerky",
+      "meat": null,
+      "ingredients": [],
+      "draft": true
     }
   ],
   "water": {
@@ -206,5 +163,6 @@
     "off_nominal_warn": 0.25,
     "day_start_hour": 0,
     "_day_start_note": "0 = plain calendar day. Set to e.g. 6 if a night shift runs past midnight, so the lock lands between shifts instead of mid-shift."
-  }
+  },
+  "_products_note": "meat: which animal this product is made from, so the operator is not asked. null means not decided yet — the batch records it as unspecified. draft: true means the recipe has no ingredients yet; the panel shows it but will not start a batch on it. Fill them in DOKI-Recipes.xlsx and run xlsx_to_recipes.py. Teriyaki omits liquid smoke, which the source CSV lists with a quantity of zero."
 }

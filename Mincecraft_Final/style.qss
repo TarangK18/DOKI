@@ -67,6 +67,9 @@ QPushButton[variant="ghost"]:pressed    { background: #1b232d; }
 #guide[tone="ok"]    { color: #3fbf7f; }
 #guide[tone="over"]  { color: #e05d5d; }
 #guide[tone="dead"]  { color: #8fa0b0; }
+#notice { font-size: {14}px; }
+#notice[tone="over"] { color: #e05d5d; font-weight: bold; }
+#notice[tone="ok"]   { color: #8fa0b0; }
 #stars       { font-size: {40}px; }
 #doneHead    { color: #3fbf7f; font-size: {17}px; font-weight: bold; }
 #dialogTitle { font-size: {20}px; font-weight: bold; }

@@ -30,8 +30,8 @@ EX_FONT = Font(name=FONT, size=10, italic=True, color="808080")
 THIN = Side(style="thin", color="BFBFBF")
 BOX = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
 
-FIRST_ROW, LAST_ROW = 8, 47          # ingredient rows
-TOTAL_ROW = 49
+FIRST_ROW, LAST_ROW = 9, 48          # ingredient rows
+TOTAL_ROW = 50
 
 # Teriyaki, from "Recipes for Yield calculation - Teriyaki.csv" (its column 6,
 # which is already grams per 1 kg of meat). Spellings normalised; see the
@@ -45,13 +45,19 @@ TERIYAKI = [
     ("Liquid smoke", 0.0),
 ]
 
-RECIPES = ["Teriyaki", "Gochujang", "Pepper", "Nati", "Kerela Fry",
-           "Mughlai", "Masala"]
+RECIPES = ["Vinegar Bath", "Teriyaki Jerky", "Gochujangh Jerky", "Pepper Jerky",
+           "Karnatka Nati Jerky", "Kerala fry Jerky", "Mughlai Jerky",
+           "Masala Jerky"]
+
+# Which animal each product is made from. The operator is not asked — the
+# product implies it. Blank means not decided yet.
+MEAT = {"Karnatka Nati Jerky": "Country chicken"}
 
 # Water is not a recipe percentage — it follows the day's flour, at a ratio the
 # supervisor sets each morning. Naming both here is what turns the gate on.
 FLOUR_WATER = {
-    "Teriyaki": ("", ""),          # no flour in the marinade
+    "Vinegar Bath":  ("", ""),
+    "Teriyaki Jerky": ("", ""),    # no flour in the marinade
 }
 
 # Master ingredient list: everything Teriyaki uses, plus the ingredients
@@ -248,7 +254,22 @@ def build_recipe(wb, name, data=None, example=False):
     ws.merge_cells("F5:H5")
     ws["F5"] = "chicken, pork, beef, mutton, fish"
 
-    flour, water = FLOUR_WATER.get(name, ("Binder (starch)", "Ice water"))
+    # Blank by default: naming a flour that is not in the sheet would fail the
+    # check below, and none of these recipes is known to use one yet.
+    flour, water = FLOUR_WATER.get(name, ("", ""))
+    ws.merge_cells("A7:B7")
+    ws["A7"] = "Meat"
+    ws["A7"].font = BOLD
+    ws["A7"].alignment = Alignment(horizontal="right")
+    ws["C7"] = MEAT.get(name, "")
+    ws["C7"].font = BLUE
+    ws["C7"].fill = INPUT_FILL
+    ws["C7"].border = BOX
+    ws.merge_cells("D7:H7")
+    ws["D7"] = ("Which animal this product is made from. The operator is not "
+                "asked — the product implies it. Leave blank if undecided.")
+    ws["D7"].font = NOTE_FONT
+
     ws.merge_cells("A6:B6")
     ws["A6"] = "Flour ingredient"
     ws["A6"].font = BOLD
@@ -269,7 +290,7 @@ def build_recipe(wb, name, data=None, example=False):
 
     # Both must name a row in this sheet, or neither. A half-specified pair
     # means water cannot be derived and the converter will refuse the recipe.
-    check = ws.cell(row=52, column=2, value=(
+    check = ws.cell(row=53, column=2, value=(
         f'=IF(AND($C$6="",$F$6=""),"Not water-gated — water comes from the '
         f'recipe row as usual.",'
         f'IF(OR($C$6="",$F$6=""),"ERROR: name BOTH a flour and a water '
@@ -282,16 +303,16 @@ def build_recipe(wb, name, data=None, example=False):
         f'The weight typed against "&$F$6&" below is only the usual figure.")))'
         f')'))
     check.font = BOLD
-    ws.merge_cells(start_row=52, start_column=2, end_row=52, end_column=8)
-    ws.conditional_formatting.add("B52:H52", FormulaRule(
-        formula=['LEFT($B$52,5)="ERROR"'],
+    ws.merge_cells(start_row=53, start_column=2, end_row=53, end_column=8)
+    ws.conditional_formatting.add("B53:H53", FormulaRule(
+        formula=['LEFT($B$53,5)="ERROR"'],
         fill=PatternFill("solid", fgColor="FBD5D5"),
         font=Font(name=FONT, size=10, bold=True, color="9C0006")))
 
     headers = ["#", "Ingredient", "g per 1 kg meat", "% of meat",
                f"Target in this batch", "Weigh on", "Tolerance ±", "Note"]
     for i, h in enumerate(headers, start=1):
-        c = ws.cell(row=7, column=i, value=h)
+        c = ws.cell(row=8, column=i, value=h)
         c.font = HEAD_FONT
         c.fill = HEAD_FILL
         c.border = BOX

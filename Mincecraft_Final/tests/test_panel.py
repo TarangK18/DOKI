@@ -97,13 +97,14 @@ def main():
           find_button(win, "▼ POUR") is not None
           and find_button(win, "→ TARGET") is not None)
     home = win.screens["HOME"]
-    check("START BATCH is locked with no water ratio set",
-          not home.start_btn.isEnabled())
-    check("the home screen says the water ratio is why",
-          "water ratio" in home.prompt.text().lower())
-    shot(win, "16-locked-no-ratio.png")
+    check("no shipped recipe uses the water ratio yet", not cfg.any_water_gated)
+    check("so START BATCH is not held for a ratio nobody uses",
+          home.start_btn.isEnabled())
+    check("and the home screen says why the ratio is not required",
+          "not required" in home.ratio_line.text())
+    shot(win, "01-home.png")
 
-    # Supervisor sets the day's ratio.
+    # The supervisor screen still works, and still guards its input.
     win.show_screen("WATER")
     pump(app, 0.4)
     water = win.screens["WATER"]
@@ -115,77 +116,81 @@ def main():
     check("a decimal-point slip is refused outright",
           not water.save_btn.isEnabled() and "outside" in water.guide.text())
     water.pad.clear()
-    for ch in "0.75":
-        water.pad.press(ch)
-    pump(app, 0.3)
-    check("a plausible but off-nominal ratio is flagged, not blocked",
-          water.save_btn.isEnabled() and "away from the usual" in water.guide.text())
-    shot(win, "17-water-ratio.png")
-    water.pad.clear()
     for ch in "0.55":
         water.pad.press(ch)
     pump(app, 0.3)
-    check("a normal ratio previews the water it implies",
-          "g water" in water.preview.text())
+    check("a ratio inside the bounds is accepted", water.save_btn.isEnabled())
+    shot(win, "17-water-ratio.png")
     water.save_btn.click()
     pump(app, 0.5)
     check("saving returns to the home screen", win.current == "HOME")
     check("today's ratio is now on file", daily.ratio() == 0.55)
-    check("START BATCH armed once the ratio is set and the scale is live",
-          home.start_btn.isEnabled())
-    shot(win, "01-home.png")
 
-    # ---------------------------------------------------------------- base
+    # ------------------------------------------------------------- product
     win.screens["HOME"].start_btn.click()
     pump(app)
-    check("base screen offers all five bases",
-          len([b for b in win.screens["BASE"].findChildren(QPushButton)
-               if b.property("variant") == "primary"]) == 5)
-    shot(win, "02-base.png")
-    win.pick_base("chicken")
+    check("START BATCH goes straight to the product list", win.current == "PRODUCT")
+    prod = win.screens["PRODUCT"]
+    buttons = [b for b in prod.findChildren(QPushButton)
+               if b.text() and not b.text().startswith("\u25c0")]
+    check("all eight products are listed", len(buttons) == 8)
+    check("the vinegar bath is one of them",
+          any("Vinegar Bath" in b.text() for b in buttons))
+    defined = [b for b in buttons if b.isEnabled()]
+    check("recipes with no ingredients are shown but not selectable",
+          len(defined) == 2)
+    check("and the screen says why they are greyed out",
+          "no ingredients entered yet" in prod.note.text())
+    check("no base-meat screen remains in the flow", "BASE" not in win.SCREENS)
+    shot(win, "19-products.png")
+
+    win.choose_product("teriyaki_jerky")
     pump(app)
+    check("choosing a product goes to weighing the meat", win.current == "CAPTURE")
 
     # ------------------------------------------------------------- capture
     cap = win.screens["CAPTURE"]
     check("CAPTURE disabled with an empty scale", not cap.cap_btn.isEnabled())
-    sim.add(3200)
-    check("scale settles after loading the tub", settle(app, state))
-    check("CAPTURE enabled once stable above the minimum", cap.cap_btn.isEnabled())
+    # Teriyaki needs 800 g before its smallest spice is weighable.
+    floor = cfg.min_base_for("teriyaki_jerky")
+    check("this recipe needs more than the global minimum", floor > cfg.min_base_g)
+    sim.set(floor - 100)
+    settle(app, state)
+    check("a batch under the recipe's own minimum cannot be captured",
+          not cap.cap_btn.isEnabled())
+    check("and the screen names the minimum", f"{floor:.0f} g" in cap.hint.text())
+    shot(win, "22-under-minimum.png")
+
+    sim.set(3200)
+    check("scale settles after loading the meat", settle(app, state))
+    check("CAPTURE enabled once stable and above the minimum",
+          cap.cap_btn.isEnabled())
     shot(win, "03-capture.png")
     cap.cap_btn.click()
-    pump(app)
+    pump(app, 0.5)
+    check("capturing goes straight to the recipe review", win.current == "REVIEW")
 
-    # ------------------------------------------------------------- product
-    check("only products valid for chicken are offered",
-          win.screens["PRODUCT"].grid.count() == 4)
-    shot(win, "04-product.png")
-    win.pick_product("chips_masala")
-    pump(app)
-
-    # --------------------------------------------------- water and ordering
-    flour = 3200 * cfg.pct_of("chips_masala", "Binder (starch)") / 100
-    water_step = next(s for s in win.st.steps if s.name == "Ice water")
-    check("water target came from the day's ratio, not the recipe",
-          abs(water_step.target - flour * 0.55) < 1e-6 and water_step.from_ratio)
-    check("water differs from what the recipe percentage would have given",
-          abs(water_step.target - 3200 * 10 / 100) > 1)
+    # -------------------------------------------------------- ordering
+    check("every target computed at once from the captured meat",
+          len(win.st.steps) == 15)
+    check("Teriyaki is not water-gated, so no target came from the ratio",
+          not any(s.from_ratio for s in win.st.steps))
     routes_in_order = [s.scale for s in win.st.steps]
     check("floor-scale ingredients are ordered before bench-scale ones",
           routes_in_order == sorted(routes_in_order,
                                     key=lambda k: 0 if k == MAIN else 1))
-    check("the batch captured the ratio it was planned on",
-          win.st.water_ratio == 0.55)
 
     # -------------------------------------------------------------- review
     rev = win.screens["REVIEW"]
     heads = [rev.table.item(r, 0).text() for r in range(rev.table.rowCount())
              if rev.table.item(r, 0) and "—" in rev.table.item(r, 0).text()]
-    check("the pick list is grouped by scale, floor first",
-          len(heads) == 2 and heads[0].startswith(cfg.main.name.upper()))
+    check("the pick list is grouped by scale", len(heads) >= 1)
     check("each group states its count and subtotal",
           "ingredient" in heads[0] and "g" in heads[0])
-    check("the day's ratio is shown on the pick list",
-          "0.550" in rev.crumb.text())
+    check("the review is step 3 of 3 now the base screen is gone",
+          "Step 3 of 3" in rev.crumb.text())
+    check("the index column is narrow, not sized to the group header",
+          rev.table.columnWidth(0) < 80)
     shot(win, "05-review.png")
     find_button(rev, "START ADDING").click()
     pump(app, 0.5)
@@ -195,9 +200,7 @@ def main():
     man = win.screens["MANUAL"]
     targets = [s.target for s in win.st.steps]
     routes = [s.scale for s in win.st.steps]
-    check("five ingredient steps computed", len(targets) == 5)
-    check("the recipe is split across both scales",
-          MAIN in routes and SMALL in routes)
+    check("fifteen ingredient steps computed", len(targets) == 15)
     print(f"         routing: " + ", ".join(
         f"{s.name}={s.scale}" for s in win.st.steps))
 
@@ -277,15 +280,14 @@ def main():
 
     rows = batches.recent()
     check("batch written to the log on the Pi", len(rows) == 1)
-    check("logged batch carries all five actuals",
-          rows and len(rows[0]["steps"]) == 5
+    check("logged batch carries every actual",
+          rows and len(rows[0]["steps"]) == 15
           and all(s["actual_g"] is not None for s in rows[0]["steps"]))
     check("the log records which scale weighed each ingredient",
           rows and all(s["weighed_on"] in (MAIN, SMALL) for s in rows[0]["steps"]))
     check("the log carries the reconciliation",
           rows and rows[0]["reconciliation"].get("ok") is True)
-    check("the log records the water ratio the batch used",
-          rows and rows[0]["water_ratio"] == 0.55)
+    check("the log records the product", rows and rows[0]["product"] == "teriyaki_jerky")
     check("the log records the production day",
           rows and rows[0]["production_day"] == daily.production_day())
 
@@ -293,7 +295,7 @@ def main():
     cpath = os.path.join(ROOT, "_test_consumption.xlsx")
     nb, nrows, ning = consumption.build(LOG, cpath)
     check("the consumption workbook rebuilds from the batch log",
-          nb == 1 and nrows == 5 and ning == 5)
+          nb == 1 and nrows == 15 and ning == 15)
     os.path.exists(cpath) and os.remove(cpath)
 
     # ------------------------------------------------------------- overlays
@@ -370,19 +372,19 @@ def main():
     from panel import WitnessDialog
     from panel import Step as PStep
     sim.zero(); pump(app, 1.5)
-    win.st.steps = [PStep("Masala spice mix", 4, 128.0, scale=SMALL)]
+    win.st.steps = [PStep("Soy sauce", 4.64, 148.5, scale=SMALL)]
     win.st.idx = 0
     win.st.step_zero = state.snapshot()["grams"] or 0.0
     win.show_screen("MANUAL")
     pump(app, 0.5)
     # Key in 128 g without ever tipping anything in.
-    for ch in "128":
+    for ch in "148":
         man.pad.press(ch)
     pump(app, 0.4)
     observed = (state.snapshot()["grams"] or 0) - win.st.step_zero
     typed = man.pad.value()
     check("the floor scale can witness an addition this size",
-          cfg.can_witness(128.0))
+          cfg.can_witness(148.5))
     check("an entry with nothing tipped in exceeds the witness tolerance",
           abs(observed - typed) > cfg.witness_tolerance(typed))
     wd = WitnessDialog(win, win.st.steps[0], typed, observed, cfg.main.name)
@@ -448,7 +450,7 @@ def main():
 
     # FILL TO TARGET should land the reading on whatever the screen wants.
     sim.zero()
-    win.st.base, win.st.product, win.st.base_wt = "chicken", "chips_masala", 3200
+    win.st.base, win.st.product, win.st.base_wt = "Chicken", "teriyaki_jerky", 3200
     win.st.steps = [PStep("Binder", 18, 576.0)]
     win.st.idx = 0
     win.st.step_zero = 0.0

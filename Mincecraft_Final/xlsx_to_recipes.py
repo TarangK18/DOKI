@@ -19,7 +19,7 @@ import sys
 import openpyxl
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-FIRST_ROW, LAST_ROW = 8, 47
+FIRST_ROW, LAST_ROW = 9, 48
 SKIP = {"Instructions", "Settings", "Summary", "Ingredients"}
 EXAMPLE = ("Salt", 7.5)      # the grey row seeded into each blank sheet
 
@@ -34,6 +34,7 @@ def read_sheet(ws):
     if not bases:
         problems.append("no bases listed in F5")
 
+    meat = (ws["C7"].value or "").strip() or None
     flour = (ws["C6"].value or "").strip()
     water = (ws["F6"].value or "").strip()
     if bool(flour) != bool(water):
@@ -73,7 +74,7 @@ def read_sheet(ws):
             problems.append(f"{role} ingredient '{ing}' is not in the "
                             f"ingredient list")
 
-    product = {"id": product_id, "name": ws.title, "bases": bases,
+    product = {"id": product_id, "name": ws.title, "meat": meat,
                "ingredients": ingredients}
     if flour and water:
         product["flour_ingredient"] = flour

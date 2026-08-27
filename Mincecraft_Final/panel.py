@@ -367,7 +367,9 @@ class BatchLogDialog(PanelDialog):
         table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         table.setSelectionMode(QAbstractItemView.NoSelection)
         table.setFocusPolicy(Qt.NoFocus)
-        table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        thead = table.horizontalHeader()
+        thead.setSectionResizeMode(QHeaderView.ResizeToContents)
+        thead.setSectionResizeMode(1, QHeaderView.Stretch)
         table.setMinimumHeight(int(300 * panel.scale))
         if not rows:
             item = QTableWidgetItem("No batches logged yet.")
@@ -438,16 +440,23 @@ class HomeScreen(Screen):
         entry = self.panel.daily.current()
 
         # Two independent locks. Say which one is holding, not just "blocked".
+        gated = self.cfg.any_water_gated
+
         if not live:
             self.prompt.setText("Waiting for the scale…")
-        elif entry is None:
+        elif gated and entry is None:
             self.prompt.setText("Today's water ratio has not been set.")
         else:
             self.prompt.setText("Ready. Put the empty container on the scale "
                                 "and press START BATCH.")
-        self.start_btn.setEnabled(live and entry is not None)
+        self.start_btn.setEnabled(live and not (gated and entry is None))
 
-        if entry is None:
+        if not gated:
+            # No recipe derives water from flour, so holding the line for a
+            # ratio nobody uses would be friction with no safety behind it.
+            tone, text = "dead", ("No recipe uses the water / flour ratio, "
+                                  "so it is not required today.")
+        elif entry is None:
             tone, text = "over", ("⚠ A supervisor must set the water / flour "
                                   "ratio for today before the first batch.")
         else:
@@ -555,21 +564,6 @@ class WaterRatioScreen(Screen):
         self.save_btn.setEnabled(True)
 
 
-class BaseScreen(Screen):
-    def build(self):
-        self.box.addWidget(label("Step 1 of 4 — <b>Select base ingredient</b>", "crumb"))
-        grid = QGridLayout()
-        grid.setSpacing(int(10 * self.panel.scale))
-        for i, b in enumerate(self.cfg.bases):
-            btn = button(f"{b['icon']}  {b['name']}", "primary",
-                         lambda _, bid=b["id"]: self.panel.pick_base(bid))
-            btn.setMinimumHeight(int(64 * self.panel.scale))
-            grid.addWidget(btn, i // 2, i % 2)
-        self.box.addLayout(grid)
-        self.box.addStretch(1)
-        self.action_row((button("◀ BACK", "ghost", self.panel.go_home), 0))
-
-
 class CaptureScreen(Screen):
     def build(self):
         self.crumb = label("", "crumb")
@@ -582,49 +576,77 @@ class CaptureScreen(Screen):
         self.box.addStretch(1)
         self.cap_btn = button("CAPTURE WEIGHT", "good", self.panel.capture_base)
         self.cap_btn.setEnabled(False)
-        self.action_row((button("◀ BACK", "ghost", lambda: self.panel.show_screen("BASE")), 0),
+        self.action_row((button("◀ BACK", "ghost",
+                                lambda: self.panel.show_screen("PRODUCT")), 0),
                         (self.cap_btn, 1))
 
     def enter(self):
-        self.crumb.setText("Step 2 of 4 — <b>Weigh base: "
-                           f"{self.cfg.base_name(self.st.base)}</b>")
+        meat = self.st.base or "the meat"
+        self.crumb.setText(
+            f"Step 2 of 3 — <b>Weigh {meat}</b> · "
+            f"{self.cfg.product_name(self.st.product)}")
 
     def tick(self, snap, live):
         self.live.update_from(snap["grams"], live, snap["stable"])
-        ok = live and snap["stable"] and snap["grams"] >= self.cfg.min_base_g
+        floor = self.cfg.min_base_for(self.st.product)
+        ok = live and snap["stable"] and snap["grams"] >= floor
         self.cap_btn.setEnabled(ok)
         if not live:
             self.hint.setText("Waiting for the scale…")
         elif ok:
             self.hint.setText(f"Stable: {snap['grams']:.0f} g — press CAPTURE")
-        elif snap["grams"] < self.cfg.min_base_g:
-            self.hint.setText(f"Put the {self.cfg.base_name(self.st.base)} "
-                              "tub in the container…")
+        elif snap["grams"] < floor:
+            need = f" — this product needs at least {floor:.0f} g" \
+                   if floor > self.cfg.min_base_g else ""
+            self.hint.setText(f"Put the {self.st.base or 'meat'} "
+                              f"in the container…{need}")
         else:
             self.hint.setText("Stabilising…")
 
 
 class ProductScreen(Screen):
+    """Step 1 — the operator picks the finished product, nothing else.
+
+    The meat follows from the product rather than being asked separately, so
+    there is one decision at the start of a batch instead of two.
+    """
+
     def build(self):
-        self.crumb = label("", "crumb")
-        self.box.addWidget(self.crumb)
+        self.box.addWidget(label("Step 1 of 3 — <b>Select product</b>", "crumb"))
         self.grid = QGridLayout()
         self.grid.setSpacing(int(10 * self.panel.scale))
         self.box.addLayout(self.grid)
         self.box.addStretch(1)
-        self.action_row((button("◀ BACK", "ghost", lambda: self.panel.show_screen("CAPTURE")), 0))
+        self.note = label("", "target", Qt.AlignLeft, wrap=True)
+        self.box.addWidget(self.note)
+        self.action_row((button("◀ BACK", "ghost", self.panel.go_home), 0))
 
     def enter(self):
-        self.crumb.setText(
-            f"Step 3 of 4 — <b>Select product / flavour</b> · "
-            f"{self.cfg.base_name(self.st.base)} {fmt(self.st.base_wt)}")
         while self.grid.count():
-            self.grid.takeAt(0).widget().deleteLater()
-        for i, p in enumerate(self.cfg.products_for(self.st.base)):
-            btn = button(p["name"], "primary",
-                         lambda _, pid=p["id"]: self.panel.pick_product(pid))
-            btn.setMinimumHeight(int(64 * self.panel.scale))
+            w = self.grid.takeAt(0).widget()
+            if w:
+                w.deleteLater()
+
+        drafts = []
+        for i, p in enumerate(self.cfg.products):
+            draft = self.cfg.is_draft(p["id"])
+            meat = self.cfg.meat_of(p["id"])
+            caption = p["name"] if not meat else f"{p['name']}\n{meat}"
+            btn = button(caption, "ghost" if draft else "primary",
+                         lambda _, pid=p["id"]: self.panel.choose_product(pid))
+            btn.setMinimumHeight(int(62 * self.panel.scale))
+            if draft:
+                btn.setEnabled(False)
+                btn.setToolTip("No ingredients entered for this recipe yet")
+                drafts.append(p["name"])
             self.grid.addWidget(btn, i // 2, i % 2)
+
+        if drafts:
+            self.note.setText(
+                f"Greyed out — no ingredients entered yet: {', '.join(drafts)}. "
+                f"Fill them in DOKI-Recipes.xlsx and run xlsx_to_recipes.py.")
+        else:
+            self.note.setText("")
 
 
 class ReviewScreen(Screen):
@@ -637,9 +659,15 @@ class ReviewScreen(Screen):
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setSelectionMode(QAbstractItemView.NoSelection)
         self.table.setFocusPolicy(Qt.NoFocus)
-        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        head = self.table.horizontalHeader()
+        head.setSectionResizeMode(QHeaderView.ResizeToContents)
+        head.setSectionResizeMode(1, QHeaderView.Stretch)   # ingredient takes the slack
+        # Column 0 carries the spanned group headers, so left to size itself it
+        # would widen to fit "BENCH SCALE — 15 ingredients, 816 g".
+        head.setSectionResizeMode(0, QHeaderView.Fixed)
+        self.table.setColumnWidth(0, int(42 * self.panel.scale))
         self.box.addWidget(self.table, 1)
-        self.warning = label("", "guide", Qt.AlignLeft, wrap=True)
+        self.warning = label("", "notice", Qt.AlignLeft, wrap=True)
         self.warning.setProperty("tone", "over")
         self.warning.setVisible(False)
         self.box.addWidget(self.warning)
@@ -653,7 +681,7 @@ class ReviewScreen(Screen):
         if self.cfg.water_gated(self.st.product) and self.st.water_ratio:
             water = (f" · water/flour <b style='color:{BLUE}'>"
                      f"{self.st.water_ratio:.3f}</b>")
-        self.crumb.setText(f"Step 4 of 4 — <b>Recipe review</b> · "
+        self.crumb.setText(f"Step 3 of 3 — <b>Recipe review</b> · "
                            f"{self.cfg.product_name(self.st.product)}{water}{rb}")
         steps = self.st.steps
         # A step no scale can resolve must stop the batch here, not be
@@ -776,8 +804,7 @@ class AddScreen(Screen):
             f"Target <b style='color:{INK}'>{fmt_g(s.target)} g</b> "
             f"(± {fmt_g(cfg.tol_of(s.target))} g)")
         self.prod_line.setText(cfg.product_name(st.product))
-        self.base_line.setText(f"{cfg.base_icon(st.base)} "
-                               f"{cfg.base_name(st.base)} {fmt(st.base_wt)}")
+        self.base_line.setText(f"{st.base or 'Meat'} {fmt(st.base_wt)}")
         self.big.setText(f"0 / {fmt_g(s.target)} g")
 
     def set_tone(self, tone, text):
@@ -1002,7 +1029,13 @@ class DoneScreen(Screen):
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setSelectionMode(QAbstractItemView.NoSelection)
         self.table.setFocusPolicy(Qt.NoFocus)
-        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        head = self.table.horizontalHeader()
+        head.setSectionResizeMode(QHeaderView.ResizeToContents)
+        head.setSectionResizeMode(1, QHeaderView.Stretch)   # ingredient takes the slack
+        # Column 0 carries the spanned group headers, so left to size itself it
+        # would widen to fit "BENCH SCALE — 15 ingredients, 816 g".
+        head.setSectionResizeMode(0, QHeaderView.Fixed)
+        self.table.setColumnWidth(0, int(42 * self.panel.scale))
         self.box.addWidget(self.table, 1)
         self.action_row((button("DONE — NEW BATCH", "primary", self.panel.new_batch), 1))
 
@@ -1087,7 +1120,7 @@ class MenuScreen(Screen):
 # -------------------------------------------------------------------- panel
 
 class Panel(QMainWindow):
-    SCREENS = {"HOME": HomeScreen, "BASE": BaseScreen, "CAPTURE": CaptureScreen,
+    SCREENS = {"HOME": HomeScreen, "CAPTURE": CaptureScreen,
                "PRODUCT": ProductScreen, "REVIEW": ReviewScreen, "ADD": AddScreen,
                "MANUAL": ManualAddScreen, "DONE": DoneScreen, "MENU": MenuScreen,
                "WATER": WaterRatioScreen}
@@ -1274,11 +1307,13 @@ class Panel(QMainWindow):
 
     def _paint_info(self):
         st = self.st
-        if st.base:
-            prod = self.cfg.product_name(st.product) if st.product else "—"
-            base = fmt(st.base_wt) if st.base_wt else "—"
-            self.info_lbl.setText(
-                f"{self.cfg.base_name(st.base)} · {prod} · base {base}")
+        if st.product:
+            bits = [self.cfg.product_name(st.product)]
+            if st.base:
+                bits.append(st.base)
+            if st.base_wt:
+                bits.append(f"meat {fmt(st.base_wt)}")
+            self.info_lbl.setText(" · ".join(bits))
         else:
             self.info_lbl.setText("")
 
@@ -1313,13 +1348,13 @@ class Panel(QMainWindow):
     # -- flow --------------------------------------------------------------
 
     def start_batch(self):
-        if not self.daily.is_set():
+        if self.cfg.any_water_gated and not self.daily.is_set():
             return                      # the home screen already says why
         self.st.started_at = time.strftime("%Y-%m-%dT%H:%M:%S%z")
         # Captured now, so a batch that starts at 23:55 finishes on the ratio
         # it began with even though the day rolls over mid-batch.
         self.st.water_ratio = self.daily.ratio()
-        self.show_screen("BASE")
+        self.show_screen("PRODUCT")
 
     def open_water_ratio(self):
         if self.ask_pin("Enter supervisor PIN to set today's water ratio."):
@@ -1343,16 +1378,20 @@ class Panel(QMainWindow):
         if self.ask_pin("Enter supervisor PIN to open the menu."):
             self.show_screen("MENU")
 
-    def pick_base(self, base_id):
-        self.st.base = base_id
-        self.show_screen("CAPTURE")
-
     def capture_base(self):
         snap = self.state.snapshot()
         if not snap["fresh"] or snap["grams"] is None:
             return
         self.st.base_wt = snap["grams"]
-        self.show_screen("PRODUCT")
+        self.pick_product(self.st.product)
+
+    def choose_product(self, product_id):
+        """Product is chosen first; the meat it implies is what gets weighed."""
+        if self.cfg.is_draft(product_id):
+            return                      # the button is disabled anyway
+        self.st.product = product_id
+        self.st.base = self.cfg.meat_of(product_id)
+        self.show_screen("CAPTURE")
 
     def pick_product(self, product_id):
         """Every target computed at once, the moment the meat is on the scale."""

@@ -56,10 +56,16 @@ def main(argv=None):
         for p in problems:
             print(f"  {p}")
         return 2
-    if args.demo and not daily.is_set():
-        daily.set(round(cfg.nominal_water_ratio("chips_masala") or 0.55, 2))
-        print(f"demo: today's water ratio pre-set to {daily.ratio()}")
+    if args.demo:
+        # Only pre-set the ratio if some recipe actually derives water from
+        # flour; otherwise there is nothing for it to unlock.
+        if cfg.any_water_gated and not daily.is_set():
+            gated = next(p["id"] for p in cfg.products if cfg.water_gated(p["id"]))
+            daily.set(round(cfg.nominal_water_ratio(gated) or 0.55, 2))
+            print(f"demo: today's water ratio pre-set to {daily.ratio()}")
         print(f"demo: logs in {os.path.dirname(args.batch_log)}")
+        usable = [p["name"] for p in cfg.products if not cfg.is_draft(p["id"])]
+        print(f"demo: recipes with ingredients — {', '.join(usable)}")
 
     sim = SimScale(division_g=cfg.division_g) if args.sim else None
     _thread, stop = start_reader(state, port=args.port, baud=args.baud, sim=sim)
