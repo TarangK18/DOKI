@@ -7,8 +7,9 @@ import time
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from scale import (Config, ScaleState, STABLE_BAND_G, STALE_S,  # noqa: E402
-                   parse_frame)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from scale import (MAIN, SMALL, Config, DailyRatio, ScaleState,  # noqa: E402
+                   STABLE_BAND_G, STALE_S, parse_frame)
 
 
 class TestParse(unittest.TestCase):
@@ -133,26 +134,234 @@ class TestConfig(unittest.TestCase):
     def setUp(self):
         self.cfg = Config.load()
 
-    def test_tolerance_floor_is_at_least_two_divisions(self):
-        # A floor finer than the scale can resolve is unsatisfiable: the
-        # reading physically cannot land inside it.
-        self.assertGreaterEqual(self.cfg.tol_of(0), 2 * self.cfg.division_g)
+    def test_two_scales_are_configured(self):
+        self.assertIsNotNone(self.cfg.small)
+        self.assertLess(self.cfg.small.division_g, self.cfg.main.division_g)
 
-    def test_small_ingredient_tolerance_is_reachable(self):
-        salt_target = 3200 * 1.8 / 100      # 1.8 % salt on a 3.2 kg base
-        self.assertGreaterEqual(self.cfg.tol_of(salt_target), self.cfg.division_g)
+    def test_crossover_is_derived_from_the_main_division(self):
+        # 2 divisions of the floor scale must fit inside the percentage.
+        self.assertAlmostEqual(self.cfg.derived_crossover_g,
+                               2 * self.cfg.main.division_g / self.cfg._tol_pct)
+        self.assertAlmostEqual(self.cfg.derived_crossover_g, 500.0)
+
+    def test_big_target_goes_to_the_floor_scale(self):
+        self.assertEqual(self.cfg.scale_for(576), MAIN)
+
+    def test_small_target_goes_to_the_bench_scale(self):
+        self.assertEqual(self.cfg.scale_for(57.6), SMALL)
+
+    def test_routing_at_the_crossover_boundary(self):
+        xo = self.cfg.main_min_target_g
+        self.assertEqual(self.cfg.scale_for(xo), MAIN)
+        self.assertEqual(self.cfg.scale_for(xo - 0.01), SMALL)
+
+    def test_tolerance_follows_the_scale_that_weighs_it(self):
+        # 58 g of salt used to get a +-10 g window because the floor scale was
+        # the only option. On the bench scale it gets the 2 % the recipe asked
+        # for, which is the entire point of the second scale.
+        self.assertAlmostEqual(self.cfg.tol_of(57.6), 57.6 * 0.02, places=4)
+        self.assertLess(self.cfg.tol_of(57.6), 2.0)
+
+    def test_tolerance_floors_at_two_divisions_of_the_bench_scale(self):
+        tiny = 1.0
+        self.assertEqual(self.cfg.scale_for(tiny), SMALL)
+        self.assertAlmostEqual(self.cfg.tol_of(tiny), 2 * self.cfg.small.division_g)
+
+    def test_degraded_flag_marks_a_floored_tolerance(self):
+        self.assertTrue(self.cfg.tolerance_degraded(1.0))     # floor beats 2 %
+        self.assertFalse(self.cfg.tolerance_degraded(57.6))   # 2 % applies
 
     def test_percentage_takes_over_for_large_targets(self):
         self.assertAlmostEqual(self.cfg.tol_of(10000), 200.0)
+
+    def test_below_the_bench_scale_resolution_is_refused(self):
+        why = self.cfg.unweighable(self.cfg.small.division_g)
+        self.assertIsNotNone(why)
+        self.assertIn("under two divisions", why)
+
+    def test_zero_target_is_refused(self):
+        self.assertIsNotNone(self.cfg.unweighable(0))
+
+    def test_no_dead_zone_with_the_shipped_specs(self):
+        self.assertIsNone(self.cfg.dead_zone)
+
+    def test_dead_zone_is_reported_when_the_bench_scale_is_too_small(self):
+        # A 100 g precision scale cannot reach the floor scale's 500 g floor,
+        # leaving targets in between unweighable on either.
+        import copy
+        data = copy.deepcopy(self.cfg.data)
+        data["scales"]["small"]["usable_g"] = 100
+        cfg = Config(data)
+        self.assertEqual(cfg.dead_zone, (100, 500))
+        why = cfg.unweighable(300)
+        self.assertIn("neither scale", why)
+
+    def test_crossover_override_moves_ingredients_to_the_floor_scale(self):
+        import copy
+        data = copy.deepcopy(self.cfg.data)
+        data["scales"]["crossover_g"] = 100
+        cfg = Config(data)
+        self.assertEqual(cfg.scale_for(320), MAIN)          # was SMALL
+        self.assertTrue(cfg.tolerance_degraded(320))        # and says so
+        self.assertAlmostEqual(cfg.tol_of(320), 10.0)       # floor scale's floor
+
+    def test_a_recipe_with_no_second_scale_still_refuses_tiny_targets(self):
+        import copy
+        data = copy.deepcopy(self.cfg.data)
+        del data["scales"]["small"]
+        cfg = Config(data)
+        self.assertIsNone(cfg.small)
+        self.assertIsNotNone(cfg.unweighable(6))
+
+    def test_witness_tolerance_allows_for_main_scale_quantisation(self):
+        # Two quantised readings can disagree by a division with nothing wrong.
+        self.assertGreaterEqual(self.cfg.witness_tolerance(30),
+                                2 * self.cfg.main.division_g)
+
+    def test_can_witness_is_false_below_two_main_divisions(self):
+        self.assertFalse(self.cfg.can_witness(6))
+        self.assertTrue(self.cfg.can_witness(50))
 
     def test_every_product_names_valid_bases(self):
         ids = {b["id"] for b in self.cfg.bases}
         for p in self.cfg.products:
             self.assertTrue(set(p["bases"]) <= ids, p["id"])
 
+    def test_no_shipped_recipe_is_unweighable_at_any_allowed_base(self):
+        from panel_stub import Step
+        for base in (self.cfg.min_base_g, 1000, 3200, 8000):
+            for p in self.cfg.products:
+                steps = [Step(n, pct, base * pct / 100) for n, pct in p["ingredients"]]
+                bad = self.cfg.unweighable_steps(steps)
+                self.assertFalse(bad, f"{p['id']} at {base} g: {bad}")
+
     def test_products_for_filters_by_base(self):
         self.assertEqual(len(self.cfg.products_for("chicken")), 4)
         self.assertEqual(len(self.cfg.products_for("fish")), 2)
+
+
+class TestWaterRatio(unittest.TestCase):
+    """The day's water/flour ratio, and the gate it drives."""
+
+    def setUp(self):
+        import tempfile
+        self.cfg = Config.load()
+        self.dir = tempfile.mkdtemp()
+        self.daily = DailyRatio(os.path.join(self.dir, "daily.json"), self.cfg)
+
+    # -- recipe wiring -----------------------------------------------------
+
+    def test_recipes_naming_flour_and_water_are_gated(self):
+        self.assertTrue(self.cfg.water_gated("chips_masala"))
+        self.assertEqual(self.cfg.flour_of("chips_masala"), "Binder (starch)")
+        self.assertEqual(self.cfg.water_of("chips_masala"), "Ice water")
+
+    def test_nominal_ratio_comes_from_the_recipe_percentages(self):
+        # 10 % water over 18 % binder.
+        self.assertAlmostEqual(self.cfg.nominal_water_ratio("chips_masala"),
+                               10 / 18, places=6)
+
+    def test_shipped_recipes_validate(self):
+        self.assertEqual(self.cfg.validate_products(), [])
+
+    def test_half_specified_pair_is_refused(self):
+        import copy
+        data = copy.deepcopy(self.cfg.data)
+        for p in data["products"]:
+            if p["id"] == "chips_masala":
+                del p["water_ingredient"]
+        problems = Config(data).validate_products()
+        self.assertTrue(any("not the other" in p for p in problems))
+
+    def test_flour_naming_a_missing_ingredient_is_refused(self):
+        import copy
+        data = copy.deepcopy(self.cfg.data)
+        for p in data["products"]:
+            if p["id"] == "chips_masala":
+                p["flour_ingredient"] = "Unobtainium"
+        problems = Config(data).validate_products()
+        self.assertTrue(any("not in its ingredient list" in p for p in problems))
+
+    # -- the derivation ----------------------------------------------------
+
+    def test_water_target_is_ratio_times_flour(self):
+        base, ratio = 3200, 0.55
+        flour = base * self.cfg.pct_of("chips_masala", "Binder (starch)") / 100
+        self.assertAlmostEqual(flour * ratio, 316.8, places=4)
+
+    # -- guards ------------------------------------------------------------
+
+    def test_ratio_inside_bounds_is_accepted(self):
+        self.assertIsNone(self.daily.validate(0.55))
+
+    def test_decimal_point_slip_is_rejected(self):
+        self.assertIsNotNone(self.daily.validate(5.5))     # 0.55 mistyped
+        self.assertIsNotNone(self.daily.validate(0.055))
+
+    def test_non_numeric_is_rejected(self):
+        self.assertIsNotNone(self.daily.validate("abc"))
+
+    def test_set_refuses_an_out_of_bounds_ratio(self):
+        with self.assertRaises(ValueError):
+            self.daily.set(9.9)
+        self.assertFalse(self.daily.is_set())
+
+    def test_plausible_but_wrong_ratio_is_flagged_off_nominal(self):
+        # Inside the hard bounds, so only the nominal check can catch it.
+        self.assertIsNone(self.daily.validate(0.75))
+        off = self.daily.off_nominal(0.75, "chips_masala")
+        self.assertGreater(off, self.cfg.water_off_nominal_warn)
+
+    def test_a_normal_ratio_is_not_flagged(self):
+        off = self.daily.off_nominal(0.55, "chips_masala")
+        self.assertLess(abs(off), self.cfg.water_off_nominal_warn)
+
+    # -- the daily gate ----------------------------------------------------
+
+    def test_starts_unset(self):
+        self.assertFalse(self.daily.is_set())
+        self.assertIsNone(self.daily.ratio())
+
+    def test_set_then_read_back(self):
+        self.daily.set(0.55)
+        self.assertTrue(self.daily.is_set())
+        self.assertAlmostEqual(self.daily.ratio(), 0.55)
+
+    def test_yesterdays_entry_does_not_count_as_today(self):
+        import time as _t
+        self.daily.set(0.55)
+        tomorrow = _t.localtime(_t.mktime(_t.localtime()) + 24 * 3600)
+        self.assertFalse(self.daily.is_set(tomorrow))
+        self.assertIsNone(self.daily.ratio(tomorrow))
+
+    def test_yesterdays_entry_is_still_offered_as_the_previous_value(self):
+        self.daily.set(0.55)
+        self.assertAlmostEqual(self.daily.previous()["ratio"], 0.55)
+
+    def test_day_start_hour_moves_the_rollover_for_a_night_shift(self):
+        import copy, time as _t
+        data = copy.deepcopy(self.cfg.data)
+        data["water"]["day_start_hour"] = 6
+        cfg = Config(data)
+        night = DailyRatio(os.path.join(self.dir, "night.json"), cfg)
+        one_am = _t.struct_time((2026, 8, 25, 1, 0, 0, 0, 237, -1))
+        eleven_pm = _t.struct_time((2026, 8, 24, 23, 0, 0, 0, 236, -1))
+        # 23:00 and 01:00 either side of midnight are the same production day.
+        self.assertEqual(night.production_day(eleven_pm),
+                         night.production_day(one_am))
+        self.assertEqual(night.production_day(one_am), "2026-08-24")
+
+    def test_plain_calendar_day_splits_at_midnight(self):
+        import time as _t
+        one_am = _t.struct_time((2026, 8, 25, 1, 0, 0, 0, 237, -1))
+        eleven_pm = _t.struct_time((2026, 8, 24, 23, 0, 0, 0, 236, -1))
+        self.assertNotEqual(self.daily.production_day(eleven_pm),
+                            self.daily.production_day(one_am))
+
+    def test_a_corrupt_daily_file_reads_as_unset_rather_than_crashing(self):
+        with open(self.daily.path, "w") as fh:
+            fh.write("{not json")
+        self.assertFalse(self.daily.is_set())
 
 
 class TestSerialEndToEnd(unittest.TestCase):

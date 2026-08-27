@@ -2,50 +2,209 @@
   "_comment": "Placeholder recipes carried over from the MINCECRAFT simulator. Percentages are of the captured base weight. Edit here; the panel reloads them on refresh.",
   "min_base_g": 500,
   "drop_alarm_g": 150,
-  "rebalance_limit": 0.10,
-  "_tolerance_note": "floor_g must be at least two scale divisions. The scale reads in 5 g steps, so the simulator's original 2 g floor was unachievable for small ingredients (salt, spice) — the reading physically cannot land that close. Raise scale_division_g and floor_g together if the real scale turns out to be coarser.",
-  "scale_division_g": 5,
-  "tolerance": { "percent": 0.02, "floor_g": 10 },
+  "rebalance_limit": 0.1,
+  "_scales_note": "Two scales. An ingredient goes on whichever one can actually hold the recipe's percentage tolerance. The main scale can only manage 'percent' once 2 divisions fit inside it, i.e. above 2*division/percent grams; below that the small scale takes over, up to its usable capacity (capacity minus the tare of whatever container sits on it). Set 'connected': true for the small scale only if it is wired to the Pi and streams the same frame format — otherwise the operator reads its display and keys the value in, and the main scale corroborates.",
+  "scales": {
+    "main": {
+      "name": "Floor scale",
+      "division_g": 5,
+      "capacity_g": 50000,
+      "port": "/dev/ttyUSB0",
+      "connected": true
+    },
+    "small": {
+      "name": "Bench scale",
+      "division_g": 0.1,
+      "capacity_g": 3000,
+      "usable_g": 2000,
+      "port": null,
+      "connected": false,
+      "_note": "SPEC NOT CONFIRMED — defaults assume a 3 kg x 0.1 g bench scale. Check the label and correct division_g, capacity_g and usable_g before this goes on the floor."
+    },
+    "crossover_g": null,
+    "_crossover_note": "null = derive it (2*main.division_g / tolerance.percent = 500 g here). Set a number to override: lower means more ingredients stay on the floor scale, which is easier to pour into but holds a looser tolerance — recipe review shows exactly which ingredients are affected and by how much."
+  },
+  "_tolerance_note": "floor_g is a backstop only. With two scales the crossover does the real work: nothing reaches the main scale that the main scale cannot hold to 'percent'.",
+  "tolerance": {
+    "percent": 0.02,
+    "floor_g": 10
+  },
   "pin": "1234",
   "bases": [
-    { "id": "chicken", "name": "Chicken", "icon": "🍗" },
-    { "id": "pork",    "name": "Pork",    "icon": "🐖" },
-    { "id": "beef",    "name": "Beef",    "icon": "🥩" },
-    { "id": "mutton",  "name": "Mutton",  "icon": "🐑" },
-    { "id": "fish",    "name": "Fish",    "icon": "🐟" }
+    {
+      "id": "chicken",
+      "name": "Chicken",
+      "icon": "🍗"
+    },
+    {
+      "id": "pork",
+      "name": "Pork",
+      "icon": "🐖"
+    },
+    {
+      "id": "beef",
+      "name": "Beef",
+      "icon": "🥩"
+    },
+    {
+      "id": "mutton",
+      "name": "Mutton",
+      "icon": "🐑"
+    },
+    {
+      "id": "fish",
+      "name": "Fish",
+      "icon": "🐟"
+    }
   ],
   "products": [
     {
-      "id": "chips_masala", "name": "Chips – Masala",
-      "bases": ["chicken", "pork", "beef", "mutton", "fish"],
+      "id": "chips_masala",
+      "name": "Chips – Masala",
+      "bases": [
+        "chicken",
+        "pork",
+        "beef",
+        "mutton",
+        "fish"
+      ],
       "ingredients": [
-        ["Binder (starch)", 18], ["Masala spice mix", 4], ["Salt", 1.8],
-        ["Ice water", 10], ["Oil", 6]
-      ]
+        [
+          "Binder (starch)",
+          18
+        ],
+        [
+          "Masala spice mix",
+          4
+        ],
+        [
+          "Salt",
+          1.8
+        ],
+        [
+          "Ice water",
+          10
+        ],
+        [
+          "Oil",
+          6
+        ]
+      ],
+      "flour_ingredient": "Binder (starch)",
+      "water_ingredient": "Ice water"
     },
     {
-      "id": "chips_pepper", "name": "Chips – Pepper",
-      "bases": ["chicken", "pork", "beef", "mutton", "fish"],
+      "id": "chips_pepper",
+      "name": "Chips – Pepper",
+      "bases": [
+        "chicken",
+        "pork",
+        "beef",
+        "mutton",
+        "fish"
+      ],
       "ingredients": [
-        ["Binder (starch)", 18], ["Black pepper mix", 3], ["Salt", 1.8],
-        ["Ice water", 10], ["Oil", 6]
-      ]
+        [
+          "Binder (starch)",
+          18
+        ],
+        [
+          "Black pepper mix",
+          3
+        ],
+        [
+          "Salt",
+          1.8
+        ],
+        [
+          "Ice water",
+          10
+        ],
+        [
+          "Oil",
+          6
+        ]
+      ],
+      "flour_ingredient": "Binder (starch)",
+      "water_ingredient": "Ice water"
     },
     {
-      "id": "balls_classic", "name": "Balls – Classic",
-      "bases": ["chicken", "pork", "beef", "mutton"],
+      "id": "balls_classic",
+      "name": "Balls – Classic",
+      "bases": [
+        "chicken",
+        "pork",
+        "beef",
+        "mutton"
+      ],
       "ingredients": [
-        ["Rusk / breadcrumb", 12], ["Onion paste", 8], ["Ginger-garlic paste", 3],
-        ["Classic spice mix", 3.5], ["Salt", 1.6], ["Ice water", 8]
-      ]
+        [
+          "Rusk / breadcrumb",
+          12
+        ],
+        [
+          "Onion paste",
+          8
+        ],
+        [
+          "Ginger-garlic paste",
+          3
+        ],
+        [
+          "Classic spice mix",
+          3.5
+        ],
+        [
+          "Salt",
+          1.6
+        ],
+        [
+          "Ice water",
+          8
+        ]
+      ],
+      "flour_ingredient": "Rusk / breadcrumb",
+      "water_ingredient": "Ice water"
     },
     {
-      "id": "balls_schezwan", "name": "Balls – Schezwan",
-      "bases": ["chicken", "pork"],
+      "id": "balls_schezwan",
+      "name": "Balls – Schezwan",
+      "bases": [
+        "chicken",
+        "pork"
+      ],
       "ingredients": [
-        ["Rusk / breadcrumb", 12], ["Schezwan paste", 9], ["Onion paste", 6],
-        ["Salt", 1.4], ["Ice water", 8]
-      ]
+        [
+          "Rusk / breadcrumb",
+          12
+        ],
+        [
+          "Schezwan paste",
+          9
+        ],
+        [
+          "Onion paste",
+          6
+        ],
+        [
+          "Salt",
+          1.4
+        ],
+        [
+          "Ice water",
+          8
+        ]
+      ],
+      "flour_ingredient": "Rusk / breadcrumb",
+      "water_ingredient": "Ice water"
     }
-  ]
+  ],
+  "water": {
+    "_note": "Water depends on the day's flour, so it is not a recipe percentage. A supervisor sets water/flour each production day; the station will not start a batch until they have. A recipe is gated only if it names both a flour_ingredient and a water_ingredient.",
+    "ratio_min": 0.2,
+    "ratio_max": 1.5,
+    "off_nominal_warn": 0.25,
+    "day_start_hour": 0,
+    "_day_start_note": "0 = plain calendar day. Set to e.g. 6 if a night shift runs past midnight, so the lock lands between shifts instead of mid-shift."
+  }
 }

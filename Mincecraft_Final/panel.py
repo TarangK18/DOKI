@@ -19,7 +19,7 @@ from PyQt5.QtWidgets import (
     QLabel, QMainWindow, QPushButton, QSizePolicy, QStackedWidget,
     QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
-from scale import fmt, fmt_g
+from scale import MAIN, SMALL, fmt, fmt_g
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -44,6 +44,10 @@ class Step:
     target: float
     actual: float = None
     skipped: bool = False
+    scale: str = MAIN          # which scale weighs this one
+    from_ratio: bool = False   # target came from the day's water ratio
+    witness_g: float = None    # what the main scale saw arrive, if it could see it
+    verified: bool = None      # None = the main scale is too coarse to tell
 
 
 @dataclass
@@ -57,6 +61,7 @@ class BatchState:
     rebalanced: bool = False
     batch_no: int = 1
     started_at: str = None
+    water_ratio: float = None     # the ratio this batch was planned on
 
     def reset(self):
         self.base = None
@@ -67,6 +72,7 @@ class BatchState:
         self.step_zero = 0.0
         self.rebalanced = False
         self.started_at = None
+        self.water_ratio = None
 
 
 # ------------------------------------------------------------------ widgets
@@ -88,6 +94,15 @@ def label(text="", obj=None, align=Qt.AlignLeft, wrap=False):
     lb.setAlignment(align)
     lb.setWordWrap(wrap)
     return lb
+
+
+def grams(value):
+    """Show sub-gram precision only where the bench scale provides it."""
+    if value >= 100:
+        return f"{value:.0f} g"
+    if value >= 10:
+        return f"{value:.1f} g".replace(".0 g", " g")
+    return f"{value:.2f} g"
 
 
 def restyle(widget):
@@ -319,6 +334,28 @@ class OverTargetDialog(PanelDialog):
                                   lambda: self.done(self.ACCEPT)))
 
 
+class WitnessDialog(PanelDialog):
+    """The floor scale disagrees with what was keyed in."""
+
+    REENTER, ACCEPT = 2, 3
+
+    def __init__(self, panel, step, typed, observed, main_name):
+        gap = observed - typed
+        if abs(observed) < panel.cfg.main.division_g:
+            headline = f"The {main_name} saw nothing go into the tub"
+            body = (f"You entered {typed:.2f} g of {step.name}, but the "
+                    f"{main_name} has not moved. Was it actually tipped in?")
+        else:
+            headline = f"The {main_name} saw {observed:+.0f} g, you entered {typed:.2f} g"
+            body = (f"{step.name}: a difference of {gap:+.1f} g. Either the "
+                    f"entry is wrong, or something else went into the tub.")
+        super().__init__(panel, headline, body, tone="alarm", width=470)
+        self.box.addWidget(button("RE-ENTER THE WEIGHT", "primary",
+                                  lambda: self.done(self.REENTER)))
+        self.box.addWidget(button("ACCEPT ANYWAY (PIN, logged)", "ghost",
+                                  lambda: self.done(self.ACCEPT)))
+
+
 class BatchLogDialog(PanelDialog):
     def __init__(self, panel, rows):
         super().__init__(panel, "Batch log",
@@ -384,22 +421,138 @@ class HomeScreen(Screen):
         self.live = LiveWeight(self.panel.scale)
         self.box.addStretch(1)
         self.box.addWidget(self.live)
-        self.prompt = label("Ready. Put the empty container on the scale "
-                            "and press START BATCH.", "prompt", Qt.AlignCenter, wrap=True)
+        self.prompt = label("", "prompt", Qt.AlignCenter, wrap=True)
         self.box.addWidget(self.prompt)
+        self.ratio_line = label("", "guide", Qt.AlignCenter, wrap=True)
+        self.box.addWidget(self.ratio_line)
         self.box.addStretch(1)
         self.start_btn = button("START BATCH", "primary", self.panel.start_batch)
+        self.water_btn = button("SET TODAY'S WATER RATIO", "warn",
+                                self.panel.open_water_ratio)
         self.action_row((button("MENU", "ghost", self.panel.open_menu), 0),
+                        (self.water_btn, 0),
                         (self.start_btn, 1))
 
     def tick(self, snap, live):
         self.live.update_from(snap["grams"], live, snap["stable"])
-        self.start_btn.setEnabled(live)
+        entry = self.panel.daily.current()
+
+        # Two independent locks. Say which one is holding, not just "blocked".
         if not live:
             self.prompt.setText("Waiting for the scale…")
+        elif entry is None:
+            self.prompt.setText("Today's water ratio has not been set.")
         else:
             self.prompt.setText("Ready. Put the empty container on the scale "
                                 "and press START BATCH.")
+        self.start_btn.setEnabled(live and entry is not None)
+
+        if entry is None:
+            tone, text = "over", ("⚠ A supervisor must set the water / flour "
+                                  "ratio for today before the first batch.")
+        else:
+            tone, text = "ok", (f"Water / flour ratio for "
+                                f"{entry['date']}: {entry['ratio']:.3f}")
+        if self.ratio_line.property("tone") != tone:
+            self.ratio_line.setProperty("tone", tone)
+            restyle(self.ratio_line)
+        self.ratio_line.setText(text)
+
+
+class WaterRatioScreen(Screen):
+    """Supervisor sets the day's water ÷ flour ratio.
+
+    Reached only through the PIN. The water each batch needs depends on the
+    flour in use that day, so this cannot live in the recipe — and until it is
+    set, no batch can start.
+    """
+
+    def build(self):
+        s = self.panel.scale
+        self.crumb = label("", "crumb")
+        self.box.addWidget(self.crumb)
+
+        body = QHBoxLayout()
+        body.setSpacing(int(18 * s))
+        col = QVBoxLayout()
+        self.headline = label("Water ÷ flour ratio for today", "ingName")
+        col.addWidget(self.headline)
+        self.previous = label("", "target", wrap=True)
+        col.addWidget(self.previous)
+        col.addStretch(1)
+        self.entry = label("—", "bigAdd", Qt.AlignCenter)
+        col.addWidget(self.entry)
+        self.guide = label("", "guide", Qt.AlignCenter, wrap=True)
+        col.addWidget(self.guide)
+        col.addStretch(1)
+        self.preview = label("", "target", Qt.AlignCenter, wrap=True)
+        col.addWidget(self.preview)
+        body.addLayout(col, 1)
+
+        self.pad = NumericPad(s, self.on_typed)
+        self.pad.setMaximumWidth(int(300 * s))
+        body.addWidget(self.pad, 0)
+        self.box.addLayout(body, 1)
+
+        self.save_btn = button("SAVE FOR TODAY ▶", "good", self.panel.save_water_ratio)
+        self.save_btn.setEnabled(False)
+        self.action_row((button("◀ CANCEL", "ghost", self.panel.go_home), 1),
+                        (self.save_btn, 0))
+
+    def enter(self):
+        cfg, daily = self.cfg, self.panel.daily
+        self.pad.clear()
+        self.crumb.setText(
+            f"Supervisor — <b>water ratio for {daily.production_day()}</b>")
+        prev = daily.previous()
+        self.previous.setText(
+            f"Last set: {prev['ratio']:.3f} on {prev['date']}."
+            if prev else "No previous ratio on file.")
+        self.on_typed()
+
+    def set_tone(self, tone, text):
+        if self.guide.property("tone") != tone:
+            self.guide.setProperty("tone", tone)
+            restyle(self.guide)
+        self.guide.setText(text)
+
+    def on_typed(self):
+        cfg, daily = self.cfg, self.panel.daily
+        self.entry.setText(self.pad.text or "—")
+        v = self.pad.value()
+        if v is None or not self.pad.text:
+            self.set_tone("dead", f"Enter a ratio between "
+                                  f"{cfg.water_ratio_min:g} and {cfg.water_ratio_max:g}.")
+            self.preview.setText("")
+            self.save_btn.setEnabled(False)
+            return
+
+        problem = daily.validate(v)
+        if problem:
+            self.set_tone("over", f"{v:g} is {problem}.")
+            self.preview.setText("")
+            self.save_btn.setEnabled(False)
+            return
+
+        # Show what this actually means in grams, so a wrong number is visible
+        # before it is committed rather than after.
+        lines = []
+        worst = 0.0
+        for p in cfg.products:
+            if not cfg.water_gated(p["id"]):
+                continue
+            flour = 3200 * cfg.pct_of(p["id"], cfg.flour_of(p["id"])) / 100
+            off = daily.off_nominal(v, p["id"])
+            worst = max(worst, abs(off or 0))
+            lines.append(f"{p['name']}: {flour * v:.0f} g water on a 3.2 kg batch")
+        self.preview.setText("   ·   ".join(lines))
+
+        if worst > cfg.water_off_nominal_warn:
+            self.set_tone("over", f"{worst:.0%} away from the usual ratio — "
+                                  f"check before saving.")
+        else:
+            self.set_tone("ok", "In the usual range — press SAVE.")
+        self.save_btn.setEnabled(True)
 
 
 class BaseScreen(Screen):
@@ -478,39 +631,102 @@ class ReviewScreen(Screen):
     def build(self):
         self.crumb = label("", "crumb")
         self.box.addWidget(self.crumb)
-        self.table = QTableWidget(0, 4)
-        self.table.setHorizontalHeaderLabels(["#", "Ingredient", "Target", "Tol."])
+        self.table = QTableWidget(0, 5)
+        self.table.setHorizontalHeaderLabels(["#", "Ingredient", "Weigh on", "Target", "Tol."])
         self.table.verticalHeader().setVisible(False)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setSelectionMode(QAbstractItemView.NoSelection)
         self.table.setFocusPolicy(Qt.NoFocus)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
         self.box.addWidget(self.table, 1)
+        self.warning = label("", "guide", Qt.AlignLeft, wrap=True)
+        self.warning.setProperty("tone", "over")
+        self.warning.setVisible(False)
+        self.box.addWidget(self.warning)
+        self.start_btn = button("START ADDING ▶", "good", self.panel.start_adding)
         self.action_row((button("◀ BACK", "ghost", lambda: self.panel.show_screen("PRODUCT")), 0),
-                        (button("START ADDING ▶", "good", self.panel.start_adding), 1))
+                        (self.start_btn, 1))
 
     def enter(self):
         rb = " · <span style='color:#e8b339'>REBALANCED</span>" if self.st.rebalanced else ""
+        water = ""
+        if self.cfg.water_gated(self.st.product) and self.st.water_ratio:
+            water = (f" · water/flour <b style='color:{BLUE}'>"
+                     f"{self.st.water_ratio:.3f}</b>")
         self.crumb.setText(f"Step 4 of 4 — <b>Recipe review</b> · "
-                           f"{self.cfg.product_name(self.st.product)}{rb}")
+                           f"{self.cfg.product_name(self.st.product)}{water}{rb}")
         steps = self.st.steps
-        self.table.setRowCount(len(steps) + 1)
-        for i, s in enumerate(steps):
-            tick = " ✓" if s.actual is not None else ""
-            for c, text in enumerate([str(i + 1), s.name + tick,
-                                      f"{fmt_g(s.target)} g",
-                                      f"± {fmt_g(self.cfg.tol_of(s.target))} g"]):
-                item = QTableWidgetItem(text)
-                if c >= 2:
-                    item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-                self.table.setItem(i, c, item)
+        # A step no scale can resolve must stop the batch here, not be
+        # discovered by an operator who adds nothing and is waved through.
+        problems = self.cfg.unweighable_steps(steps)
+        bad_names = {name for name, _, _ in problems}
+        degraded = []
+
+        # Grouped in the order the operator will work: floor scale, then bench.
+        groups = [(k, [s for s in steps if s.scale == k]) for k in (MAIN, SMALL)]
+        groups = [(k, g) for k, g in groups if g]
+        self.table.setRowCount(len(steps) + len(groups) + 1)
+
+        row = 0
+        n = 0
+        for key, group in groups:
+            spec = self.cfg.spec(key)
+            subtotal = sum(s.target for s in group)
+            head = QTableWidgetItem(
+                f"{spec.name.upper()} — {len(group)} ingredient"
+                f"{'s' if len(group) != 1 else ''}, {fmt(subtotal)}")
+            f = head.font(); f.setBold(True); head.setFont(f)
+            head.setForeground(QColor(AMBER if key == SMALL else BLUE))
+            self.table.setItem(row, 0, head)
+            self.table.setSpan(row, 0, 1, 5)
+            row += 1
+
+            for s in group:
+                n += 1
+                tick = " ✓" if s.actual is not None else ""
+                if s.from_ratio:
+                    tick += "  (from today's ratio)"
+                tol = self.cfg.tol_of(s.target)
+                is_deg = self.cfg.tolerance_degraded(s.target)
+                if is_deg and s.name not in bad_names:
+                    degraded.append(s.name)
+                for c, text in enumerate([str(n), s.name + tick, spec.name,
+                                          grams(s.target), "± " + grams(tol)]):
+                    item = QTableWidgetItem(text)
+                    if c >= 3:
+                        item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                    if s.name in bad_names:
+                        item.setForeground(QColor(RED))
+                    elif is_deg and c >= 2:
+                        item.setForeground(QColor(AMBER))
+                    elif s.from_ratio and c == 1:
+                        item.setForeground(QColor(BLUE))
+                    self.table.setItem(row, c, item)
+                row += 1
+
         total = self.st.base_wt + sum(s.target for s in steps)
-        for c, text in enumerate(["", "Total batch", fmt(total), ""]):
+        for c, text in enumerate(["", "Total batch with meat", "", fmt(total), ""]):
             item = QTableWidgetItem(text)
             f = item.font(); f.setBold(True); item.setFont(f)
-            if c >= 2:
+            if c >= 3:
                 item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            self.table.setItem(len(steps), c, item)
+            self.table.setItem(row, c, item)
+
+        self.start_btn.setEnabled(not problems)
+        self.warning.setVisible(bool(problems) or bool(degraded))
+        if problems:
+            self.warning.setProperty("tone", "over"); restyle(self.warning)
+            lines = "; ".join(f"{n} — {why}" for n, _, why in problems)
+            self.warning.setText(
+                f"⚠ Neither scale can weigh {len(problems)} of these "
+                f"{len(steps)} ingredients: {lines}.")
+        elif degraded:
+            # Allowed, but the operator should not assume the recipe's
+            # percentage is being enforced when the scale's step is coarser.
+            self.warning.setProperty("tone", "ok"); restyle(self.warning)
+            self.warning.setText(
+                f"Held to the bench scale's resolution rather than the recipe's "
+                f"{self.cfg._tol_pct:.0%} on: {', '.join(degraded)}.")
 
 
 class AddScreen(Screen):
@@ -618,6 +834,157 @@ class AddScreen(Screen):
                 self.panel.over_target(added)
 
 
+class NumericPad(QWidget):
+    """Touch keypad for entering what the bench scale read."""
+
+    def __init__(self, scale, on_change):
+        super().__init__()
+        self.text = ""
+        self.on_change = on_change
+        grid = QGridLayout(self)
+        grid.setSpacing(int(8 * scale))
+        grid.setContentsMargins(0, 0, 0, 0)
+        for i, k in enumerate(["1", "2", "3", "4", "5", "6", "7", "8", "9",
+                               ".", "0", "←"]):
+            b = button(k, None, lambda _, key=k: self.press(key))
+            b.setMinimumHeight(int(48 * scale))
+            grid.addWidget(b, i // 3, i % 3)
+
+    def press(self, k):
+        if k == "←":
+            self.text = self.text[:-1]
+        elif k == ".":
+            if "." not in self.text:
+                self.text = (self.text or "0") + "."
+        elif len(self.text.replace(".", "")) < 6:
+            self.text += k
+        self.on_change()
+
+    def clear(self):
+        self.text = ""
+        self.on_change()
+
+    def value(self):
+        try:
+            return float(self.text)
+        except ValueError:
+            return None
+
+
+class ManualAddScreen(Screen):
+    """An ingredient too small for the floor scale.
+
+    The operator weighs it on the bench scale, reads the display and keys the
+    value in. That typed number is the measurement — but the floor scale still
+    sees the weight arrive when it is tipped into the tub, so it serves as a
+    witness. It cannot confirm a 2 g spice (that is below its own resolution
+    and the screen says so plainly), but it can confirm a 30 g one, and above
+    all it can catch an ingredient that never went in at all.
+    """
+
+    def build(self):
+        s = self.panel.scale
+        head = QHBoxLayout()
+        left = QVBoxLayout()
+        self.step_no = label("", "stepNo")
+        self.ing_name = label("", "ingName")
+        self.target_line = label("", "target")
+        for w in (self.step_no, self.ing_name, self.target_line):
+            left.addWidget(w)
+        right = QVBoxLayout()
+        self.scale_badge = label("", "stepNo", Qt.AlignRight)
+        self.prod_line = label("", "stepNo", Qt.AlignRight)
+        right.addWidget(self.scale_badge); right.addWidget(self.prod_line)
+        head.addLayout(left, 1); head.addLayout(right, 0)
+        self.box.addLayout(head)
+
+        body = QHBoxLayout()
+        body.setSpacing(int(18 * s))
+
+        col = QVBoxLayout()
+        self.instruction = label("", "prompt", Qt.AlignCenter, wrap=True)
+        col.addWidget(self.instruction)
+        col.addStretch(1)
+        self.entry = label("0", "bigAdd", Qt.AlignCenter)
+        col.addWidget(self.entry)
+        self.guide = label("", "guide", Qt.AlignCenter, wrap=True)
+        col.addWidget(self.guide)
+        col.addStretch(1)
+        self.witness = label("", "target", Qt.AlignCenter, wrap=True)
+        col.addWidget(self.witness)
+        body.addLayout(col, 1)
+
+        self.pad = NumericPad(s, self.on_typed)
+        self.pad.setMaximumWidth(int(300 * s))
+        body.addWidget(self.pad, 0)
+        self.box.addLayout(body, 1)
+
+        self.confirm_btn = button("CONFIRM ▶", "good", self.panel.confirm_manual)
+        self.confirm_btn.setEnabled(False)
+        self.action_row((button("ABORT", "danger", self.panel.confirm_abort), 0),
+                        (button("SKIP (PIN)", "ghost", self.panel.skip_step), 1),
+                        (self.confirm_btn, 0))
+
+    def enter(self):
+        st, cfg = self.st, self.cfg
+        s = st.steps[st.idx]
+        spec = cfg.spec(s.scale)
+        self.pad.clear()
+        self.step_no.setText(f"Ingredient {st.idx + 1} of {len(st.steps)}")
+        self.ing_name.setText(s.name)
+        self.target_line.setText(
+            f"Target <b style='color:{INK}'>{s.target:.2f} g</b> "
+            f"(± {cfg.tol_of(s.target):.2f} g)")
+        self.scale_badge.setText(f"<b style='color:{AMBER}'>{spec.name}</b>")
+        self.prod_line.setText(cfg.product_name(st.product))
+        self.instruction.setText(
+            f"Weigh <b>{s.name}</b> on the {spec.name}, then tip it into the tub "
+            f"and key in what the {spec.name} read.")
+        self.on_typed()
+
+    def set_tone(self, tone, text):
+        if self.guide.property("tone") != tone:
+            self.guide.setProperty("tone", tone)
+            restyle(self.guide)
+        self.guide.setText(text)
+
+    def on_typed(self):
+        s = self.st.steps[self.st.idx]
+        tol = self.cfg.tol_of(s.target)
+        self.entry.setText((self.pad.text or "0") + " g")
+        v = self.pad.value()
+        if v is None or not self.pad.text:
+            self.set_tone("dead", "Key in the weight from the bench scale.")
+            self.confirm_btn.setEnabled(False)
+        elif v < s.target - tol:
+            self.set_tone("under", f"{s.target - v:.2f} g under target")
+            self.confirm_btn.setEnabled(False)
+        elif v > s.target + tol:
+            self.set_tone("over", f"{v - s.target:.2f} g over target — "
+                                  f"take some off the bench scale")
+            self.confirm_btn.setEnabled(False)
+        else:
+            self.set_tone("ok", "In tolerance — press CONFIRM")
+            self.confirm_btn.setEnabled(True)
+
+    def tick(self, snap, live):
+        """The floor scale watching for the ingredient to arrive."""
+        s = self.st.steps[self.st.idx]
+        if not self.cfg.can_witness(s.target):
+            self.witness.setText(
+                f"Too small for the {self.cfg.main.name} to see "
+                f"(under {2 * self.cfg.main.division_g:g} g) — this entry cannot "
+                f"be cross-checked and will be logged as unverified.")
+            return
+        if not live:
+            self.witness.setText(f"{self.cfg.main.name} not reporting — "
+                                 f"cannot cross-check this entry.")
+            return
+        delta = snap["grams"] - self.st.step_zero
+        self.witness.setText(f"{self.cfg.main.name} has seen "
+                             f"{delta:+.0f} g go into the tub.")
+
+
 class DoneScreen(Screen):
     def build(self):
         self.head = label("", "doneHead")
@@ -626,8 +993,11 @@ class DoneScreen(Screen):
         self.box.addWidget(self.stars)
         self.msg = label("", "prompt", Qt.AlignCenter)
         self.box.addWidget(self.msg)
-        self.table = QTableWidget(0, 5)
-        self.table.setHorizontalHeaderLabels(["#", "Ingredient", "Target", "Actual", "Dev."])
+        self.recon = label("", "target", Qt.AlignCenter, wrap=True)
+        self.box.addWidget(self.recon)
+        self.table = QTableWidget(0, 6)
+        self.table.setHorizontalHeaderLabels(
+            ["#", "Ingredient", "Weighed on", "Target", "Actual", "Dev."])
         self.table.verticalHeader().setVisible(False)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setSelectionMode(QAbstractItemView.NoSelection)
@@ -659,14 +1029,40 @@ class DoneScreen(Screen):
                 actual = f"{fmt_g(s.actual)} g"
                 dev_text = f"{'+' if dev >= 0 else ''}{dev:.0f} g ({pct:.1f}%)"
                 colour = GREEN if abs(dev) <= cfg.tol_of(s.target) else RED
-            for c, text in enumerate([str(i + 1), s.name, f"{fmt_g(s.target)} g",
-                                      actual, dev_text]):
+            spec = cfg.spec(s.scale)
+            where = spec.name if spec else "—"
+            if s.verified is False:
+                where += " ⚠"
+            elif s.verified is None and s.scale == SMALL:
+                where += " (unverified)"
+            for c, text in enumerate([str(i + 1), s.name, where,
+                                      f"{fmt_g(s.target)} g", actual, dev_text]):
                 item = QTableWidgetItem(text)
-                if c >= 2:
+                if c >= 3:
                     item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-                if c == 4:
+                if c == 5:
                     item.setForeground(QColor(colour))
+                if c == 2 and s.verified is False:
+                    item.setForeground(QColor(RED))
+                elif c == 2 and s.verified is None and s.scale == SMALL:
+                    item.setForeground(QColor(MUTED))
                 self.table.setItem(i, c, item)
+
+        r = self.panel.reconcile()
+        if not r.get("available"):
+            self.recon.setText("Batch total could not be reconciled — "
+                               "the floor scale was not reporting at the end.")
+        elif r["ok"]:
+            self.recon.setText(
+                f"Batch total reconciles: floor scale {r['observed_g']:.0f} g "
+                f"vs {r['expected_g']:.0f} g recorded "
+                f"({r['difference_g']:+.0f} g, within ±{r['allowance_g']:.0f} g).")
+        else:
+            self.recon.setText(
+                f"⚠ Batch total does not reconcile: floor scale reads "
+                f"{r['observed_g']:.0f} g but {r['expected_g']:.0f} g was recorded "
+                f"({r['difference_g']:+.0f} g, outside ±{r['allowance_g']:.0f} g). "
+                f"One of the bench-scale entries is likely wrong.")
 
 
 class MenuScreen(Screen):
@@ -674,8 +1070,9 @@ class MenuScreen(Screen):
         self.box.addWidget(label("<b>Menu</b> (supervisor)", "crumb"))
         grid = QGridLayout()
         grid.setSpacing(int(10 * self.panel.scale))
-        entries = [("Recipe editor", None), ("Scale calibration", None),
-                   ("Manual tare", None), ("Batch log", self.panel.show_batch_log)]
+        entries = [("Today's water ratio", lambda: self.panel.show_screen("WATER")),
+                   ("Scale calibration", None),
+                   ("Recipe editor", None), ("Batch log", self.panel.show_batch_log)]
         for i, (text, fn) in enumerate(entries):
             btn = button(text, None, fn)
             btn.setMinimumHeight(int(60 * self.panel.scale))
@@ -692,13 +1089,15 @@ class MenuScreen(Screen):
 class Panel(QMainWindow):
     SCREENS = {"HOME": HomeScreen, "BASE": BaseScreen, "CAPTURE": CaptureScreen,
                "PRODUCT": ProductScreen, "REVIEW": ReviewScreen, "ADD": AddScreen,
-               "DONE": DoneScreen, "MENU": MenuScreen}
+               "MANUAL": ManualAddScreen, "DONE": DoneScreen, "MENU": MenuScreen,
+               "WATER": WaterRatioScreen}
 
-    def __init__(self, state, cfg, batches, sim=None):
+    def __init__(self, state, cfg, batches, daily, sim=None):
         super().__init__()
         self.state = state
         self.cfg = cfg
         self.batches = batches
+        self.daily = daily
         self.sim = sim
         self.st = BatchState()
         self.dialog_open = False
@@ -750,17 +1149,103 @@ class Panel(QMainWindow):
         self.setCentralWidget(root)
 
     def _sim_bar(self):
+        """The bench rig: stands in for a scale, a tub and a pair of hands.
+
+        POUR is press-and-hold with a rate that ramps the longer it is held,
+        because that is what makes the tolerance guidance worth testing — a
+        constant trickle would never overshoot, and overshooting is the case
+        the panel exists to handle.
+        """
         bar = QFrame(); bar.setObjectName("simbar")
         hb = QHBoxLayout(bar)
-        hb.setContentsMargins(8, 6, 8, 6)
-        hb.addStretch(1)
-        hb.addWidget(label("SIMULATED SCALE"))
-        for text, grams in [("+5 g", 5), ("+50 g", 50), ("+500 g", 500),
-                            ("+3 kg", 3000), ("−50 g", -50), ("−500 g", -500)]:
+        hb.setContentsMargins(10, 6, 10, 6)
+        hb.setSpacing(int(6 * self.scale))
+
+        self.sim_readout = label("", "simReadout")
+        self.sim_readout.setMinimumWidth(int(150 * self.scale))
+        hb.addWidget(self.sim_readout)
+        hb.addSpacing(int(10 * self.scale))
+
+        self.pour_btn = QPushButton("▼ POUR")
+        self.pour_btn.setToolTip("Press and hold — the rate ramps up")
+        self.pour_btn.setObjectName("pourBtn")
+        self.pour_btn.setCursor(Qt.BlankCursor)
+        self.pour_btn.pressed.connect(self.sim_pour_start)
+        self.pour_btn.released.connect(self.sim_pour_stop)
+        hb.addWidget(self.pour_btn)
+
+        self.scoop_btn = QPushButton("▲ SCOOP")
+        self.scoop_btn.setToolTip("Press and hold to take weight back off")
+        self.scoop_btn.setCursor(Qt.BlankCursor)
+        self.scoop_btn.pressed.connect(lambda: self.sim_pour_start(-1))
+        self.scoop_btn.released.connect(self.sim_pour_stop)
+        hb.addWidget(self.scoop_btn)
+
+        for text, grams in [("+1", 1), ("+5", 5), ("+50", 50), ("+500", 500),
+                            ("−5", -5), ("−50", -50)]:
             hb.addWidget(button(text, None, lambda _, g=grams: self.sim.add(g)))
-        hb.addWidget(button("EMPTY", None, self.sim.zero))
+
         hb.addStretch(1)
+        self.fill_btn = button("→ TARGET", None, self.sim_fill_target)
+        self.fill_btn.setToolTip("Jump to exactly what this screen is waiting for")
+        hb.addWidget(self.fill_btn)
+        self.lift_btn = button("LIFT TUB", None, self.sim_lift)
+        self.lift_btn.setToolTip("Take the container off, to rehearse the drop alarm")
+        hb.addWidget(self.lift_btn)
+        hb.addWidget(button("EMPTY", None, self.sim.zero))
+
+        self.pour_dir = 1
+        self.pour_ticks = 0
+        self.pour_timer = QTimer(self)
+        self.pour_timer.timeout.connect(self.sim_pour_tick)
         return bar
+
+    # -- simulation controls ------------------------------------------------
+
+    def sim_pour_start(self, direction=1):
+        self.pour_dir = direction
+        self.pour_ticks = 0
+        self.pour_timer.start(100)
+
+    def sim_pour_stop(self):
+        self.pour_timer.stop()
+
+    def sim_pour_tick(self):
+        # 20 g/s building to 280 g/s, the same ramp the browser simulator used.
+        self.pour_ticks += 1
+        rate = min(2 + self.pour_ticks * 1.6, 28)
+        self.sim.add(rate * self.pour_dir)
+
+    def sim_fill_target(self):
+        """Jump straight to whatever the current screen is waiting for.
+
+        Walking a seven-ingredient recipe by holding POUR each time is fine
+        once; this is for the fifth run-through.
+        """
+        if self.current == "CAPTURE":
+            self.sim.set(3200)
+        elif self.current in ("ADD", "MANUAL") and self.st.steps:
+            self.sim.set(self.st.step_zero + self.st.steps[self.st.idx].target)
+        else:
+            self.sim.set(3200)
+
+    def sim_lift(self):
+        lifted = self.sim.lift()
+        self.lift_btn.setText("TUB BACK" if lifted else "LIFT TUB")
+
+    def _paint_sim(self):
+        if self.sim is None:
+            return
+        if self.sim.is_lifted:
+            self.sim_readout.setText("RIG · tub off")
+            return
+        true_g = self.sim.reading()
+        wanted = ""
+        if self.current in ("ADD", "MANUAL") and self.st.steps:
+            step = self.st.steps[self.st.idx]
+            need = self.st.step_zero + step.target - true_g
+            wanted = f" · {need:+.0f} to go"
+        self.sim_readout.setText(f"RIG · {true_g:,.0f} g{wanted}")
 
     def set_display_scale(self, factor):
         """Multiply every {N}px in the stylesheet, so a 1920×1080 monitor gets
@@ -810,6 +1295,7 @@ class Panel(QMainWindow):
             restyle(self.link_lbl)
         self.link_lbl.setText(text)
 
+        self._paint_sim()
         if not self.dialog_open:
             self.screens[self.current].tick(snap, live)
 
@@ -827,8 +1313,27 @@ class Panel(QMainWindow):
     # -- flow --------------------------------------------------------------
 
     def start_batch(self):
+        if not self.daily.is_set():
+            return                      # the home screen already says why
         self.st.started_at = time.strftime("%Y-%m-%dT%H:%M:%S%z")
+        # Captured now, so a batch that starts at 23:55 finishes on the ratio
+        # it began with even though the day rolls over mid-batch.
+        self.st.water_ratio = self.daily.ratio()
         self.show_screen("BASE")
+
+    def open_water_ratio(self):
+        if self.ask_pin("Enter supervisor PIN to set today's water ratio."):
+            self.show_screen("WATER")
+
+    def save_water_ratio(self):
+        value = self.screens["WATER"].pad.value()
+        if value is None:
+            return
+        try:
+            self.daily.set(value)
+        except ValueError:
+            return                      # the screen already showed the reason
+        self.go_home()
 
     def go_home(self):
         self.st.reset()
@@ -850,12 +1355,39 @@ class Panel(QMainWindow):
         self.show_screen("PRODUCT")
 
     def pick_product(self, product_id):
+        """Every target computed at once, the moment the meat is on the scale."""
         self.st.product = product_id
         self.st.rebalanced = False
-        p = self.cfg.product(product_id)
-        self.st.steps = [Step(name=n, pct=pct, target=self.st.base_wt * pct / 100)
-                         for n, pct in p["ingredients"]]
+        cfg = self.cfg
+        p = cfg.product(product_id)
+
+        gated = cfg.water_gated(product_id)
+        flour_name = cfg.flour_of(product_id) if gated else None
+        water_name = cfg.water_of(product_id) if gated else None
+        flour_target = (self.st.base_wt * cfg.pct_of(product_id, flour_name) / 100
+                        if gated else None)
+
+        self.st.steps = []
+        for n, pct in p["ingredients"]:
+            if gated and n == water_name:
+                # Water is not a recipe percentage — it follows the day's flour.
+                target = flour_target * self.st.water_ratio
+                pct = target / self.st.base_wt * 100 if self.st.base_wt else 0
+            else:
+                target = self.st.base_wt * pct / 100
+            self.st.steps.append(Step(name=n, pct=pct, target=target,
+                                      scale=cfg.scale_for(target) or MAIN,
+                                      from_ratio=bool(gated and n == water_name)))
+        self.order_steps()
         self.show_screen("REVIEW")
+
+    def order_steps(self):
+        """Floor scale first, then bench, keeping recipe order inside each.
+
+        One trip to the tub and one stint at the bench, instead of walking
+        between the two for every ingredient.
+        """
+        self.st.steps.sort(key=lambda s: 0 if s.scale == MAIN else 1)
 
     def start_adding(self):
         idx = next((i for i, s in enumerate(self.st.steps)
@@ -868,7 +1400,8 @@ class Panel(QMainWindow):
         snap = self.state.snapshot()
         self.st.idx = idx
         self.st.step_zero = snap["grams"] if snap["grams"] is not None else 0.0
-        self.show_screen("ADD")
+        step = self.st.steps[idx]
+        self.show_screen("MANUAL" if step.scale == SMALL else "ADD")
 
     def current_added(self):
         snap = self.state.snapshot()
@@ -877,7 +1410,42 @@ class Panel(QMainWindow):
         return max(0.0, snap["grams"] - self.st.step_zero)
 
     def accept_step(self):
-        self.st.steps[self.st.idx].actual = self.current_added()
+        step = self.st.steps[self.st.idx]
+        step.actual = self.current_added()
+        step.witness_g = step.actual      # weighed on the main scale directly
+        step.verified = True
+        self.next_step()
+
+    def confirm_manual(self):
+        """Accept a bench-scale entry, with the floor scale as corroboration."""
+        step = self.st.steps[self.st.idx]
+        typed = self.screens["MANUAL"].pad.value()
+        if typed is None:
+            return
+        snap = self.state.snapshot()
+        observed = (snap["grams"] - self.st.step_zero) if snap["fresh"] else None
+
+        if not self.cfg.can_witness(step.target) or observed is None:
+            # Below the floor scale's resolution, or it is not reporting. Record
+            # the entry as unverified rather than implying a check happened.
+            step.actual, step.witness_g, step.verified = typed, observed, None
+            self.next_step()
+            return
+
+        if abs(observed - typed) > self.cfg.witness_tolerance(typed):
+            dlg = WitnessDialog(self, step, typed, observed, self.cfg.main.name)
+            result = self._dialog(dlg)
+            if result != WitnessDialog.ACCEPT:
+                self.screens["MANUAL"].pad.clear()
+                return
+            if not self.ask_pin("Accept an entry the floor scale disagrees with "
+                                "(will be logged)."):
+                self.screens["MANUAL"].pad.clear()
+                return
+            step.verified = False
+        else:
+            step.verified = True
+        step.actual, step.witness_g = typed, observed
         self.next_step()
 
     def next_step(self):
@@ -934,6 +1502,9 @@ class Panel(QMainWindow):
             s.actual = self.current_added()
             s.target = s.actual
             st.rebalanced = True
+            # Later targets moved, so the pick list must be redrawn, not left
+            # showing the numbers the operator memorised a minute ago.
+            self.order_steps()
             self.show_screen("REVIEW")
         elif result == OverTargetDialog.ACCEPT:
             if self.ask_pin("Accept over-target amount (will be logged)."):
@@ -945,6 +1516,29 @@ class Panel(QMainWindow):
 
     # -- output ------------------------------------------------------------
 
+    def reconcile(self):
+        """Compare what the floor scale gained across the whole batch with the
+        sum of everything recorded.
+
+        Individually a 2 g spice is invisible to a 5 g scale. Collectively the
+        bench-weighed ingredients are not, so the batch total is the one check
+        that covers them — it will not tell you which entry was wrong, but it
+        will tell you that one was.
+        """
+        snap = self.state.snapshot()
+        if not snap["fresh"] or snap["grams"] is None or not self.st.steps:
+            return {"available": False}
+        expected = self.st.base_wt + sum(s.actual or 0 for s in self.st.steps)
+        observed = snap["grams"]
+        # One division of slack per weighing, since each is quantised.
+        allowance = self.cfg.main.division_g * (len(self.st.steps) + 1)
+        return {"available": True,
+                "expected_g": round(expected, 1),
+                "observed_g": round(observed, 1),
+                "difference_g": round(observed - expected, 1),
+                "allowance_g": round(allowance, 1),
+                "ok": abs(observed - expected) <= allowance}
+
     def record_batch(self):
         st = self.st
         self.batches.append({
@@ -954,10 +1548,32 @@ class Panel(QMainWindow):
             "base_weight_g": round(st.base_wt),
             "rebalanced": st.rebalanced,
             "started_at": st.started_at,
-            "steps": [{"name": s.name, "target_g": round(s.target),
-                       "actual_g": None if s.actual is None else round(s.actual),
-                       "skipped": s.skipped} for s in st.steps],
+            "water_ratio": st.water_ratio,
+            "production_day": self.daily.production_day(),
+            "steps": [{"name": s.name,
+                       "target_g": round(s.target, 2),
+                       "actual_g": None if s.actual is None else round(s.actual, 2),
+                       "skipped": s.skipped,
+                       "weighed_on": s.scale,
+                       "witness_g": None if s.witness_g is None else round(s.witness_g, 1),
+                       "verified": s.verified} for s in st.steps],
+            "reconciliation": self.reconcile(),
         })
+        self.refresh_consumption()
+
+    def refresh_consumption(self):
+        """Rebuild the Excel consumption view from the batch log.
+
+        Best effort and never on the critical path — the JSONL is the record,
+        this is only the view of it, so a failure here must not lose a batch.
+        """
+        try:
+            import consumption
+            consumption.build(self.batches.path,
+                              os.path.join(os.path.dirname(self.batches.path),
+                                           "consumption.xlsx"))
+        except Exception:
+            pass
 
     def show_batch_log(self):
         self._dialog(BatchLogDialog(self, self.batches.recent()))

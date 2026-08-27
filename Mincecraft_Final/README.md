@@ -17,7 +17,8 @@ sudo apt install python3-pyqt5 python3-serial
 sudo usermod -aG dialout pi        # so the app can open /dev/ttyUSB0, then log out and back in
 
 python3 station.py                 # real scale, fullscreen
-python3 station.py --sim           # no hardware; on-screen +/- buttons
+python3 station.py --demo          # no hardware at all — start here
+python3 station.py --sim           # simulated scale, fullscreen
 python3 station.py --windowed      # windowed, for development
 python3 station.py --port /dev/ttyUSB1 --baud 9600
 ```
@@ -46,13 +47,62 @@ for free. For a console-only boot with no desktop, run it under
 | `style.qss` | MINCECRAFT palette; `{N}px` sizes scale with the display |
 | `recipes.json` | bases, products, percentages, tolerances, PIN — edit this |
 | `batches.jsonl` | one JSON line per completed batch (created on first batch) |
-| `tests/test_scale.py` | 26 tests, incl. a virtual serial port |
-| `tests/test_panel.py` | 33-check headless walkthrough of a whole batch |
+| `consumption.py` | rebuilds `consumption.xlsx` from the batch log |
+| `fake_scale.py` | virtual serial port streaming real frames, for testing with no scale |
+| `run-demo.bat` / `run-demo.sh` | one-click demo launcher (Windows / Linux) |
+| `daily.json` | the day's water ratio (created when a supervisor sets it) |
+| `tests/test_scale.py` | 60 tests, incl. a virtual serial port |
+| `tests/test_panel.py` | 77-check headless walkthrough of a whole batch |
+| `tests/test_fake_scale.py` | 10 tests driving the real reader over a virtual port |
 
 `scale.py` imports nothing from `panel.py` and knows nothing about Qt. That
 boundary is the point: the logic that decides what the weight *is* stays
 testable without a display, the same way the cook state machine in
 `doki_probe.ino` is plain C++ so the harness can lift it out verbatim.
+
+## Running it with no scale
+
+**`python3 station.py --demo`** is the one to reach for — or double-click
+`run-demo.bat` on Windows, `run-demo.sh` on the Pi. It implies `--sim` and
+`--windowed`, pre-sets today's water ratio so the supervisor gate does not stop
+you before you have seen anything, and points the batch log and daily file at a
+scratch directory so a demo never lands in the real records.
+
+That gives you a **rig strip** along the bottom standing in for a scale, a tub
+and a pair of hands:
+
+| control | what it is for |
+|---|---|
+| **▼ POUR** (hold) | pours at a rate that *ramps* the longer you hold — which is what makes the tolerance guidance worth testing. A constant trickle would never overshoot, and overshooting is the case the panel exists to handle. |
+| **▲ SCOOP** (hold) | takes weight back off, for the over-target path |
+| +1 +5 +50 +500 −5 −50 | nudges, for landing on a number deliberately |
+| **→ TARGET** | jumps to exactly what the current screen is waiting for. Walking a seven-ingredient recipe by hand is fine once; this is for the fifth run-through. |
+| **LIFT TUB** | takes the container off, to rehearse the container-removed alarm |
+| **EMPTY** | back to zero |
+
+The strip's left-hand readout shows the rig's *true* weight and how far it is
+from target — next to which the panel shows what the scale actually reads, so
+you can watch quantisation and dither at work.
+
+Runs on Windows as well as the Pi; nothing in `--demo` needs a serial port.
+
+### Exercising the real serial path
+
+`--sim` bypasses the serial code, so it proves the panel works and nothing
+about the reader. For that, `fake_scale.py` creates a **virtual serial port**
+and streams genuine `+NNN.NNN kg` frames down it — doubled, at 10 Hz, with
+dither — so the parser, de-duplication, staleness and reconnect logic all run
+exactly as they will on the bench:
+
+```bash
+python3 fake_scale.py                       # prints the port it created
+python3 station.py --port /dev/pts/3 --windowed    # in another terminal
+```
+
+Type at it while it runs: `3200`, `+50`, `pour`, `lift`, `zero`, `noise 0`,
+`drop` (stop sending, to watch the panel go STALE), `resume`, `quit`.
+
+Linux and macOS only — it needs a pty. On Windows use `--demo`.
 
 ## How the reading is handled
 
@@ -114,8 +164,9 @@ small panel in the corner.
 ## Verify
 
 ```bash
-python3 tests/test_scale.py                              # 26 tests
-QT_QPA_PLATFORM=offscreen python3 tests/test_panel.py    # 33 checks + screenshots
+python3 tests/test_scale.py                              # 60 tests
+QT_QPA_PLATFORM=offscreen python3 tests/test_panel.py    # 77 checks + screenshots
+python3 tests/test_fake_scale.py                         # 10 over a virtual port
 ```
 
 The panel test drives the real app in simulation: a complete batch from base
@@ -124,16 +175,112 @@ tolerance, the batch record verified in the JSONL, then the container-removal
 alarm, the over-target prompt, the PIN pad, feed loss, and the layout at both
 1024×600 and 1920×1080. Screenshots land in `screenshots/`.
 
+## The daily water ratio
+
+How much water a batch needs depends on the flour in use that day, so it cannot
+be a recipe percentage. A supervisor sets **water ÷ flour** once per production
+day, behind the PIN, and **no batch can start until they have** — the home
+screen says which of the two locks (no scale, no ratio) is holding.
+
+Water target = `ratio × flour target`. The recipe's own water figure stays in
+the workbook as the *nominal*, used only for the sanity check. A recipe is
+gated only if it names both a `flour_ingredient` and a `water_ingredient`;
+others run unchanged.
+
+Two guards, because a mistyped ratio is the obvious failure mode:
+
+- **Hard bounds** (`water.ratio_min` / `max`, default 0.2–1.5) — `5.5` typed
+  for `0.55` is refused outright.
+- **Off-nominal warning** — a ratio more than 25 % from what the recipe implies
+  is flagged before saving. That catches `0.75` for `0.55`, which no bound can.
+
+The entry screen shows the previous day's value and, live as they type, the
+grams of water it implies for each recipe — so a wrong number is visible before
+it is committed rather than after.
+
+**Expiry is at each new production day.** A batch already running is not
+interrupted: the ratio is captured into the batch when its targets are computed,
+so a batch begun at 23:55 finishes on the ratio it started with and only the
+*next* one is blocked. `water.day_start_hour` (default 0) moves the rollover if
+a night shift runs past midnight, so the lock lands between shifts.
+
+Every batch record carries the `water_ratio` and `production_day` it used.
+
+## The order of work, and the pick list
+
+Every target is computed the moment the meat is weighed — not one at a time —
+and the review screen shows the whole plan before any pouring starts, grouped
+into a **Floor scale** section and a **Bench scale** section with counts and
+subtotals. Floor-scale ingredients are worked first, then bench, so the
+operator makes one trip rather than walking between the two scales for every
+ingredient. Recipe order is kept within each group.
+
+An over-target ingredient that triggers a rebalance moves the later targets, so
+the list is redrawn rather than left showing numbers that no longer apply.
+
+## Consumption log
+
+`batches.jsonl` is the record — append-only, one line per batch, which is what
+survives a Pi losing power mid-write. `consumption.xlsx` is a *view* of it,
+rebuilt from scratch after every batch:
+
+- **Consumption** — one row per ingredient per batch, which is the grain an
+  inventory system needs.
+- **Batches** — one row per batch with totals and the reconciliation result.
+- **By ingredient** — total consumed per ingredient per month.
+
+Nothing ever writes to the workbook directly, so it cannot drift from the log,
+and deleting it costs nothing: `python3 consumption.py` brings it back correct.
+
+## Two scales
+
+The floor scale reads in 5 g steps. Two of those have to fit inside the
+recipe's 2 % before it can be said to be enforcing anything, so it can only
+hold that tolerance above **500 g** — derived as `2 × division ÷ percent`, not
+picked. Everything below that goes on the bench scale.
+
+That crossover is the fix for a real defect. With one scale, 58 g of salt got
+a ±10 g window, and anything under 10 g had a tolerance *wider than its own
+target* — meaning zero was inside tolerance and an operator who added nothing
+would pass the step. Routed to the bench scale, the same salt is held to
+±1.15 g, which is what the recipe asked for all along.
+
+`scales.crossover_g` overrides the derived value. Lowering it keeps more
+ingredients on the floor scale — easier to pour into, looser tolerance — and
+recipe review marks in amber exactly which ingredients are then held to the
+scale's resolution rather than the recipe's percentage. Nothing is degraded
+silently.
+
+If neither scale can weigh an ingredient, review says so and refuses to start
+the batch. A `dead_zone` appears if the bench scale's usable capacity stops
+below the floor scale's crossover; it is reported rather than discovered
+mid-batch.
+
+### The bench scale is not wired to the Pi
+
+The operator reads its display and keys the value in, so that typed number is
+the measurement. But the ingredient is then tipped into the tub, and **the
+floor scale sees it arrive** — so it serves as a witness:
+
+- Above 10 g (two floor-scale divisions) the panel compares the typed value
+  against the weight it saw appear, and challenges a mismatch. It cannot be
+  fooled by an ingredient that was never added.
+- Below that it says so plainly — "too small for the floor scale to see, this
+  entry cannot be cross-checked" — and logs the step as unverified rather than
+  implying a check that never happened.
+- At the end of the batch the **total** reconciles: individually a 2 g spice is
+  invisible, collectively the bench-weighed ingredients are not. It will not
+  say which entry was wrong, but it will say that one was.
+
+Every batch record carries `weighed_on`, `witness_g` and `verified` per
+ingredient, plus the batch reconciliation.
+
 ## Open — needs a human decision
 
-**Tolerances have to respect the scale's resolution.** The simulator used a
-`max(2 g, 2 %)` tolerance, which no 5 g-division scale can ever satisfy for a
-small ingredient: 1.8 % salt on a 3.2 kg base is a 58 g target with a ±2 g
-window, narrower than one division. The floor here is **10 g (two
-divisions)** so the flow works, but the correct per-ingredient tolerance is a
-recipe and QA question, not a firmware one — the same shape as the cook hold
-time. Confirm the scale's actual division (`scale_division_g` in
-`recipes.json`) on the bench, then set tolerances against it.
+**The bench scale's spec is a guess.** `recipes.json` assumes 3 kg × 0.1 g.
+Check the label and correct `division_g`, `capacity_g` and `usable_g`
+(capacity minus the tare of whatever container sits on it) before this goes on
+the floor — the crossover and every small-ingredient tolerance depend on them.
 
 Also still open:
 

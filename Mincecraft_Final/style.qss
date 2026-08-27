@@ -107,5 +107,12 @@ QScrollBar::add-line, QScrollBar::sub-line { height: 0; }
 #simbar QLabel { background: transparent; color: #e8b339; font-size: {12}px; letter-spacing: 1px; }
 #simbar QPushButton {
     background: #3a2f12; color: #e8b339;
-    padding: {8}px {12}px; font-size: {13}px;
+    padding: {7}px {9}px; font-size: {12}px; border-radius: 6px;
 }
+#simbar QPushButton:pressed { background: #6b5620; color: #ffd97a; }
+#simReadout {
+    color: #e8b339; font-size: {12}px; font-weight: bold;
+    font-family: "DejaVu Sans Mono", monospace;
+}
+#pourBtn { background: #57451a; color: #ffd97a; }
+#pourBtn:pressed { background: #8a6f28; }
