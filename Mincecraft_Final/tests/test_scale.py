@@ -134,6 +134,9 @@ class TestConfig(unittest.TestCase):
     def setUp(self):
         self.cfg = Config.load()
 
+    def test_the_floor_scale_reads_to_one_gram(self):
+        self.assertEqual(self.cfg.main.division_g, 1.0)
+
     def test_two_scales_are_configured(self):
         self.assertIsNotNone(self.cfg.small)
         self.assertLess(self.cfg.small.division_g, self.cfg.main.division_g)
@@ -142,7 +145,8 @@ class TestConfig(unittest.TestCase):
         # 2 divisions of the floor scale must fit inside the percentage.
         self.assertAlmostEqual(self.cfg.derived_crossover_g,
                                2 * self.cfg.main.division_g / self.cfg._tol_pct)
-        self.assertAlmostEqual(self.cfg.derived_crossover_g, 500.0)
+        # 1 g floor scale, 2 % tolerance -> 100 g.
+        self.assertAlmostEqual(self.cfg.derived_crossover_g, 100.0)
 
     def test_big_target_goes_to_the_floor_scale(self):
         self.assertEqual(self.cfg.scale_for(576), MAIN)
@@ -190,20 +194,20 @@ class TestConfig(unittest.TestCase):
         # leaving targets in between unweighable on either.
         import copy
         data = copy.deepcopy(self.cfg.data)
-        data["scales"]["small"]["usable_g"] = 100
+        data["scales"]["small"]["usable_g"] = 40
         cfg = Config(data)
-        self.assertEqual(cfg.dead_zone, (100, 500))
-        why = cfg.unweighable(300)
+        self.assertEqual(cfg.dead_zone, (40, 100))
+        why = cfg.unweighable(70)
         self.assertIn("neither scale", why)
 
     def test_crossover_override_moves_ingredients_to_the_floor_scale(self):
         import copy
         data = copy.deepcopy(self.cfg.data)
-        data["scales"]["crossover_g"] = 100
+        data["scales"]["crossover_g"] = 20
         cfg = Config(data)
-        self.assertEqual(cfg.scale_for(320), MAIN)          # was SMALL
-        self.assertTrue(cfg.tolerance_degraded(320))        # and says so
-        self.assertAlmostEqual(cfg.tol_of(320), 10.0)       # floor scale's floor
+        self.assertEqual(cfg.scale_for(60), MAIN)           # was SMALL
+        self.assertTrue(cfg.tolerance_degraded(60))         # and says so
+        self.assertAlmostEqual(cfg.tol_of(60), 2.0)         # floor scale's floor
 
     def test_a_recipe_with_no_second_scale_still_refuses_tiny_targets(self):
         import copy
@@ -219,19 +223,52 @@ class TestConfig(unittest.TestCase):
                                 2 * self.cfg.main.division_g)
 
     def test_can_witness_is_false_below_two_main_divisions(self):
-        self.assertFalse(self.cfg.can_witness(6))
-        self.assertTrue(self.cfg.can_witness(50))
+        # At 1 g the floor scale can corroborate almost any bench weighing.
+        self.assertFalse(self.cfg.can_witness(1))
+        self.assertTrue(self.cfg.can_witness(6))
 
     def test_products_carry_a_name_and_an_id(self):
         for p in self.cfg.products:
             self.assertTrue(p["id"] and p["name"], p)
 
-    def test_a_recipe_with_no_ingredients_is_a_draft(self):
-        drafts = [p["id"] for p in self.cfg.products if self.cfg.is_draft(p["id"])]
-        defined = [p["id"] for p in self.cfg.products if not self.cfg.is_draft(p["id"])]
-        self.assertTrue(defined, "at least one recipe must be usable")
-        for pid in drafts:
-            self.assertFalse(self.cfg.product(pid)["ingredients"])
+    def test_every_shipped_recipe_is_usable(self):
+        for p in self.cfg.products:
+            self.assertFalse(self.cfg.is_draft(p["id"]), p["id"])
+
+    def test_a_recipe_with_no_weighed_ingredients_is_a_draft(self):
+        import copy
+        data = copy.deepcopy(self.cfg.data)
+        data["products"] = [{"id": "empty", "name": "Empty", "meat": None,
+                             "ingredients": []},
+                            {"id": "zeros", "name": "Zeros", "meat": None,
+                             "ingredients": [["Liquid smoke", 0]]}]
+        cfg = Config(data)
+        self.assertTrue(cfg.is_draft("empty"))
+        # All-zero is a draft too: nothing would be weighed.
+        self.assertTrue(cfg.is_draft("zeros"))
+
+    def test_a_zero_quantity_ingredient_is_listed_but_not_weighed(self):
+        # Kept on the recipe so nobody wonders whether it was forgotten, but a
+        # zero-weight step would refuse to start the batch.
+        names = [n for n, _ in self.cfg.reference_ingredients("teriyaki_jerky")]
+        self.assertEqual(names, ["liquid smoke"])
+        active = [n for n, _ in self.cfg.active_ingredients("teriyaki_jerky")]
+        self.assertNotIn("liquid smoke", active)
+
+    def test_zero_quantity_ingredients_do_not_block_a_batch(self):
+        from panel_stub import Step
+        for pid in ("teriyaki_jerky", "pepper_jerky"):
+            steps = [Step(n, pct, 10000 * pct / 100)
+                     for n, pct in self.cfg.active_ingredients(pid)]
+            self.assertFalse(self.cfg.unweighable_steps(steps), pid)
+
+    def test_an_ingredient_added_twice_is_two_distinct_steps(self):
+        # Two weighings at different stages, so the names must differ or the
+        # operator cannot tell which is which.
+        names = [n for n, _ in self.cfg.active_ingredients("masala_jerky")]
+        self.assertEqual(len(names), len(set(names)))
+        self.assertIn("CRACKED BLACK PEPPER", names)
+        self.assertIn("CRACKED BLACK PEPPER (2nd addition)", names)
 
     def test_meat_is_carried_on_the_product_not_asked(self):
         # None is allowed and means "not decided yet"; the batch records that
@@ -247,19 +284,41 @@ class TestConfig(unittest.TestCase):
                 continue
             floor = self.cfg.min_base_for(p["id"])
             for base in (floor, floor * 1.5, 3200, 8000):
-                steps = [Step(n, pct, base * pct / 100) for n, pct in p["ingredients"]]
+                steps = [Step(n, pct, base * pct / 100)
+                         for n, pct in self.cfg.active_ingredients(p["id"])]
                 bad = self.cfg.unweighable_steps(steps)
                 self.assertFalse(bad, f"{p['id']} at {base:.0f} g: {bad}")
 
     def test_a_recipe_with_a_tiny_ingredient_needs_a_bigger_batch(self):
-        # Bhut jholokia at 0.025 % does not reach two bench-scale divisions
-        # until the batch is 800 g, so Teriyaki cannot be made at the 500 g
-        # global minimum.
+        # Bhut jholokia at 2.5 g per 10 kg does not reach two bench-scale
+        # divisions until the batch is 800 g, so Teriyaki cannot be made at the
+        # 500 g global minimum.
         self.assertGreater(self.cfg.min_base_for("teriyaki_jerky"), self.cfg.min_base_g)
         self.assertAlmostEqual(self.cfg.min_base_for("teriyaki_jerky"), 800.0, places=3)
 
+    def test_quantities_match_the_supplied_sheets(self):
+        """recipes.json against the figures as written, in g per 10 kg."""
+        sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        from recipe_data import RECIPES, as_percent
+        for name, (meat, rows) in RECIPES.items():
+            pid = name.lower().replace(" ", "_")
+            stored = self.cfg.product(pid)["ingredients"]
+            self.assertEqual(len(stored), len(rows), name)
+            for (sn, sp), (n, g) in zip(stored, rows):
+                self.assertEqual(sn, n, name)
+                self.assertAlmostEqual(sp, as_percent(g), places=6,
+                                       msg=f"{name}: {n}")
+            self.assertEqual(self.cfg.meat_of(pid), meat, name)
+
     def test_a_recipe_with_no_tiny_ingredient_uses_the_global_minimum(self):
         self.assertEqual(self.cfg.min_base_for("vinegar_bath"), self.cfg.min_base_g)
+
+    def test_every_recipe_can_be_made_at_a_10_kg_batch(self):
+        from panel_stub import Step
+        for p in self.cfg.products:
+            steps = [Step(n, pct, 10000 * pct / 100)
+                     for n, pct in self.cfg.active_ingredients(p["id"])]
+            self.assertFalse(self.cfg.unweighable_steps(steps), p["id"])
 
 
 class TestWaterRatio(unittest.TestCase):

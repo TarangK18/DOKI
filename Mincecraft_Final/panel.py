@@ -732,6 +732,27 @@ class ReviewScreen(Screen):
                     self.table.setItem(row, c, item)
                 row += 1
 
+        # Ingredients listed at zero: shown so nobody wonders whether they were
+        # forgotten, but not weighed.
+        reference = self.cfg.reference_ingredients(self.st.product) \
+            if self.st.product else []
+        if reference:
+            self.table.setRowCount(self.table.rowCount() + len(reference) + 1)
+            head = QTableWidgetItem("LISTED BUT NOT WEIGHED — no quantity set")
+            f = head.font(); f.setBold(True); head.setFont(f)
+            head.setForeground(QColor(MUTED))
+            self.table.setItem(row, 0, head)
+            self.table.setSpan(row, 0, 1, 5)
+            row += 1
+            for n, _ in reference:
+                for c, text in enumerate(["", n, "—", "—", ""]):
+                    item = QTableWidgetItem(text)
+                    item.setForeground(QColor(MUTED))
+                    if c >= 3:
+                        item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                    self.table.setItem(row, c, item)
+                row += 1
+
         total = self.st.base_wt + sum(s.target for s in steps)
         for c, text in enumerate(["", "Total batch with meat", "", fmt(total), ""]):
             item = QTableWidgetItem(text)
@@ -934,6 +955,10 @@ class ManualAddScreen(Screen):
         col.addStretch(1)
         self.entry = label("0", "bigAdd", Qt.AlignCenter)
         col.addWidget(self.entry)
+        # Same bar as the floor-scale screen: a number alone does not show how
+        # far off target you are, or how wide the acceptable band is.
+        self.bar = ToleranceBar(s)
+        col.addWidget(self.bar)
         self.guide = label("", "guide", Qt.AlignCenter, wrap=True)
         col.addWidget(self.guide)
         col.addStretch(1)
@@ -981,18 +1006,21 @@ class ManualAddScreen(Screen):
         self.entry.setText((self.pad.text or "0") + " g")
         v = self.pad.value()
         if v is None or not self.pad.text:
+            self.bar.set_values(0, s.target, tol, "under")
             self.set_tone("dead", "Key in the weight from the bench scale.")
             self.confirm_btn.setEnabled(False)
-        elif v < s.target - tol:
-            self.set_tone("under", f"{s.target - v:.2f} g under target")
-            self.confirm_btn.setEnabled(False)
+            return
+
+        if v < s.target - tol:
+            tone, msg, ok = "under", f"{s.target - v:.2f} g under target", False
         elif v > s.target + tol:
-            self.set_tone("over", f"{v - s.target:.2f} g over target — "
-                                  f"take some off the bench scale")
-            self.confirm_btn.setEnabled(False)
+            tone, msg, ok = "over", (f"{v - s.target:.2f} g over target — "
+                                     f"take some off the bench scale"), False
         else:
-            self.set_tone("ok", "In tolerance — press CONFIRM")
-            self.confirm_btn.setEnabled(True)
+            tone, msg, ok = "ok", "In tolerance — press CONFIRM", True
+        self.bar.set_values(v, s.target, tol, tone)
+        self.set_tone(tone, msg)
+        self.confirm_btn.setEnabled(ok)
 
     def tick(self, snap, live):
         """The floor scale watching for the ingredient to arrive."""
@@ -1407,7 +1435,7 @@ class Panel(QMainWindow):
                         if gated else None)
 
         self.st.steps = []
-        for n, pct in p["ingredients"]:
+        for n, pct in cfg.active_ingredients(product_id):
             if gated and n == water_name:
                 # Water is not a recipe percentage — it follows the day's flour.
                 target = flour_target * self.st.water_ratio

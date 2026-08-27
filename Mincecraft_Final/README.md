@@ -45,14 +45,16 @@ for free. For a console-only boot with no desktop, run it under
 | `panel.py` | the whole UI: screens, dialogs, custom widgets |
 | `station.py` | entry point — arg parsing, wiring, fullscreen launch |
 | `style.qss` | MINCECRAFT palette; `{N}px` sizes scale with the display |
-| `recipes.json` | bases, products, percentages, tolerances, PIN — edit this |
+| `recipes.json` | products, percentages, tolerances, scales, PIN |
+| `recipe_data.py` | the recipes as supplied, in g per 10 kg — the source both `recipes.json` and the workbook are built from |
 | `batches.jsonl` | one JSON line per completed batch (created on first batch) |
 | `consumption.py` | rebuilds `consumption.xlsx` from the batch log |
+| `check_scale.py` | measures a real scale: frame format, division, dither |
 | `fake_scale.py` | virtual serial port streaming real frames, for testing with no scale |
 | `run-demo.bat` / `run-demo.sh` | one-click demo launcher (Windows / Linux) |
 | `daily.json` | the day's water ratio (created when a supervisor sets it) |
-| `tests/test_scale.py` | 68 tests, incl. a virtual serial port and the entry point |
-| `tests/test_panel.py` | 81-check headless walkthrough of a whole batch |
+| `tests/test_scale.py` | 75 tests, incl. a virtual serial port and the entry point |
+| `tests/test_panel.py` | 87-check headless walkthrough of a whole batch |
 | `tests/test_fake_scale.py` | 10 tests driving the real reader over a virtual port |
 
 `scale.py` imports nothing from `panel.py` and knows nothing about Qt. That
@@ -85,6 +87,32 @@ from target — next to which the panel shows what the scale actually reads, so
 you can watch quantisation and dither at work.
 
 Runs on Windows as well as the Pi; nothing in `--demo` needs a serial port.
+
+## With the scale on the bench
+
+Before trusting anything else, measure it:
+
+```bash
+python3 check_scale.py                 # /dev/ttyUSB0, 20 s
+python3 check_scale.py --seconds 30 --port /dev/ttyUSB1
+```
+
+Run it twice — once with nothing on the scale, once with a steady weight —
+and leave it alone while it runs. It reports the frame format, the smallest
+step the scale actually reads, how much a settled reading dithers, the frame
+rate and the duplicate rate, then says what to put in `recipes.json`.
+
+Three numbers in this app were taken on trust and this is what confirms them:
+`scales.main.division_g`, the stability band, and whether the scale ever emits
+anything other than the `+NNN.NNN kg` frame. It measures dither from quiet
+1.5 s windows rather than the whole run, so changing the weight partway
+through does not spoil the figure.
+
+Then run the station against the real port:
+
+```bash
+python3 station.py --port /dev/ttyUSB0 --windowed
+```
 
 ### Exercising the real serial path
 
@@ -143,6 +171,12 @@ A recipe with no ingredients yet shows on the product screen but cannot be
 selected, and the screen says which ones and where to fill them in. An empty
 recipe reaching the floor is worse than a greyed-out button.
 
+**An ingredient listed at zero is shown but not weighed.** Liquid smoke sits
+at 0 in Teriyaki and Pepper. It stays on the review list under *"listed but not
+weighed"* so nobody wonders whether it was forgotten — but it is not a step,
+because a zero-weight step has a tolerance wider than its target and would
+refuse to start the batch. A reminder should not stop the line.
+
 **Each recipe has its own minimum batch size.** The smallest ingredient sets
 it: bhut jholokia at 0.025 % of the meat does not reach two divisions of the
 bench scale until the batch is 800 g, so a 500 g Teriyaki batch is not a
@@ -174,8 +208,8 @@ small panel in the corner.
 ## Verify
 
 ```bash
-python3 tests/test_scale.py                              # 68 tests
-QT_QPA_PLATFORM=offscreen python3 tests/test_panel.py    # 81 checks + screenshots
+python3 tests/test_scale.py                              # 75 tests
+QT_QPA_PLATFORM=offscreen python3 tests/test_panel.py    # 87 checks + screenshots
 python3 tests/test_fake_scale.py                         # 10 over a virtual port
 ```
 
@@ -249,10 +283,11 @@ and deleting it costs nothing: `python3 consumption.py` brings it back correct.
 
 ## Two scales
 
-The floor scale reads in 5 g steps. Two of those have to fit inside the
+The floor scale reads and errs to **1 g**. Two of those have to fit inside the
 recipe's 2 % before it can be said to be enforcing anything, so it can only
-hold that tolerance above **500 g** — derived as `2 × division ÷ percent`, not
-picked. Everything below that goes on the bench scale.
+hold that tolerance above **100 g** — derived as `2 × division ÷ percent`, not
+picked. Everything below that goes on the bench scale. Confirm the division
+with `check_scale.py` before trusting the split.
 
 That crossover is the fix for a real defect. With one scale, 58 g of salt got
 a ±10 g window, and anything under 10 g had a tolerance *wider than its own
@@ -277,7 +312,7 @@ The operator reads its display and keys the value in, so that typed number is
 the measurement. But the ingredient is then tipped into the tub, and **the
 floor scale sees it arrive** — so it serves as a witness:
 
-- Above 10 g (two floor-scale divisions) the panel compares the typed value
+- Above 2 g (two floor-scale divisions) the panel compares the typed value
   against the weight it saw appear, and challenges a mismatch. It cannot be
   fooled by an ingredient that was never added.
 - Below that it says so plainly — "too small for the floor scale to see, this

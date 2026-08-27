@@ -22,7 +22,7 @@ Type commands while it runs:
   pour        ramp up continuously until you press enter again
   lift        take the tub off (tests the drop alarm)
   zero        empty the scale
-  noise 0     make it perfectly steady; noise 4 is the default dither
+  noise 0     make it perfectly steady; noise 1.5 is the default dither
   drop        stop sending frames, to watch the panel go STALE
   resume      start sending again
   quit
@@ -35,7 +35,7 @@ import sys
 import threading
 import time
 
-DIVISION_G = 5.0
+DIVISION_G = 1.0
 FRAME_HZ = 10
 
 
@@ -43,7 +43,7 @@ class FakeScale:
     def __init__(self):
         self.true_g = 0.0
         self.lifted = None
-        self.noise = 4.0
+        self.noise = 1.5
         self.sending = True
         self.pouring = False
         self.stop = threading.Event()

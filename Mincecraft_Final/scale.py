@@ -28,7 +28,7 @@ FRAME_RE = re.compile(rb"([+-]\d{3}\.\d{3})\s*kg")
 STALE_S = 2.0             # no fresh frame for this long -> not trustworthy
 STABILITY_WINDOW_S = 1.5  # window used to judge whether the reading settled
 STABILITY_MIN_SAMPLES = 8
-STABLE_BAND_G = 5.0       # spread allowed in the window; scale division is 5 g
+STABLE_BAND_G = 2.0       # spread allowed in the window: two scale divisions
 RECONNECT_S = 2.0
 LOG_MAX = 3600            # rolling in-memory log of accepted readings
 
@@ -48,8 +48,12 @@ class ScaleState:
     silent is detected by the reader of the state rather than announced by it.
     """
 
-    def __init__(self):
+    def __init__(self, stable_band_g=STABLE_BAND_G):
         self.lock = threading.Lock()
+        # Two divisions of whichever scale is feeding us: a reading dithers
+        # across adjacent steps even when the weight is not moving, so a band
+        # narrower than that would never read settled.
+        self.stable_band_g = stable_band_g
 
         self.connected = False        # serial port is open
         self.port_error = None
@@ -107,7 +111,7 @@ class ScaleState:
         if len(self._raw) < STABILITY_MIN_SAMPLES:
             return False
         values = [g for _, g in self._raw]
-        return (max(values) - min(values)) <= STABLE_BAND_G
+        return (max(values) - min(values)) <= self.stable_band_g
 
     # -- read out ----------------------------------------------------------
 
@@ -185,7 +189,7 @@ class SimScale:
     adds noise, so the panel sees the same dither a real scale produces.
     """
 
-    def __init__(self, division_g=5.0):
+    def __init__(self, division_g=1.0):
         self.true_g = 0.0
         self.division_g = division_g
         self.lifted_g = None        # weight set aside while the tub is off
@@ -233,7 +237,7 @@ def sim_reader(state, sim, stop):
     while not stop.is_set():
         with sim.lock:
             true_g, div = sim.true_g, sim.division_g
-        noise = (random.random() - 0.5) * 4.0 if true_g > 0 else 0.0
+        noise = (random.random() - 0.5) * div * 1.5 if true_g > 0 else 0.0
         grams = max(0.0, round((true_g + noise) / div) * div)
         # The real scale sends each reading twice; mirror that so the
         # de-duplication path is exercised in simulation too.
@@ -580,11 +584,27 @@ class Config:
         """
         return self.product(product_id).get("meat")
 
+    def active_ingredients(self, product_id):
+        """The ingredients that are actually weighed."""
+        return [(n, pct) for n, pct in self.product(product_id)["ingredients"]
+                if pct and pct > 0]
+
+    def reference_ingredients(self, product_id):
+        """Ingredients listed at zero.
+
+        Kept on the recipe so nobody wonders whether they were forgotten, but
+        not weighed: a zero-quantity step would have a tolerance wider than
+        its target and refuse to start the batch, which would turn a reminder
+        into a stoppage.
+        """
+        return [(n, pct) for n, pct in self.product(product_id)["ingredients"]
+                if not pct or pct <= 0]
+
     def is_draft(self, product_id):
         """A product with no ingredients yet. Shown, but cannot be started —
         an empty recipe reaching the floor is worse than a greyed-out button."""
         p = self.product(product_id)
-        return bool(p.get("draft")) or not p.get("ingredients")
+        return bool(p.get("draft")) or not self.active_ingredients(product_id)
 
     def min_base_for(self, product_id):
         """Smallest batch of meat this product can actually be made in.
@@ -597,9 +617,8 @@ class Config:
         floor = self.min_base_g
         if self.small is None:
             return floor
-        for _, pct in self.product(product_id)["ingredients"]:
-            if pct > 0:
-                floor = max(floor, 2 * self.small.division_g / (pct / 100.0))
+        for _, pct in self.active_ingredients(product_id):
+            floor = max(floor, 2 * self.small.division_g / (pct / 100.0))
         return floor
 
     @property

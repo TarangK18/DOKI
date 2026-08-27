@@ -104,7 +104,7 @@ class TestFakeScale(unittest.TestCase):
         self.assertTrue(self.settle(),
                         "a steady scale should read stable within the "
                         f"{STABILITY_WINDOW_S}s window")
-        self.send("noise 4")
+        self.send("noise 1.5")   # the default dither for a 1 g scale
 
     def test_04_increment_arrives(self):
         self.send("3200")

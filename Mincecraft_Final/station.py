@@ -46,7 +46,7 @@ def main(argv=None):
         args.daily = os.path.join(scratch, "daily.json")
 
     cfg = Config.load(args.recipes)
-    state = ScaleState()
+    state = ScaleState(stable_band_g=2 * cfg.main.division_g)
     batches = BatchLog(args.batch_log)
     daily = DailyRatio(args.daily, cfg)
 

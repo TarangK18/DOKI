@@ -33,25 +33,19 @@ BOX = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
 FIRST_ROW, LAST_ROW = 9, 48          # ingredient rows
 TOTAL_ROW = 50
 
-# Teriyaki, from "Recipes for Yield calculation - Teriyaki.csv" (its column 6,
-# which is already grams per 1 kg of meat). Spellings normalised; see the
-# Instructions sheet.
-TERIYAKI = [
-    ("Teriyaki sauce", 73.0), ("Soy sauce", 46.4), ("Honey", 42.0),
-    ("Tamarind pulp", 25.4), ("White vinegar", 25.4), ("Jaggery powder", 23.2),
-    ("Sea salt", 7.5), ("Sesame seed", 4.5), ("Verdad", 2.0),
-    ("Onion powder", 1.4), ("Chilli flake", 1.3), ("Black pepper", 1.1),
-    ("Yeast extract", 1.0), ("Garlic powder", 0.6), ("Bhut jholokia", 0.25),
-    ("Liquid smoke", 0.0),
-]
+# The recipes as supplied, in grams per 10 kg of meat. The sheets below work in
+# grams per 1 kg, so each is divided by ten on the way in.
+from recipe_data import RECIPES as SUPPLIED
 
-RECIPES = ["Vinegar Bath", "Teriyaki Jerky", "Gochujangh Jerky", "Pepper Jerky",
-           "Karnatka Nati Jerky", "Kerala fry Jerky", "Mughlai Jerky",
-           "Masala Jerky"]
+RECIPES = list(SUPPLIED)
 
 # Which animal each product is made from. The operator is not asked — the
 # product implies it. Blank means not decided yet.
-MEAT = {"Karnatka Nati Jerky": "Country chicken"}
+MEAT = {name: (meat or "") for name, (meat, _) in SUPPLIED.items()}
+
+def rows_for(name):
+    """Grams per 1 kg of meat, from the supplied per-10-kg figures."""
+    return [(n, g / 10.0) for n, g in SUPPLIED[name][1]]
 
 # Water is not a recipe percentage — it follows the day's flour, at a ratio the
 # supervisor sets each morning. Naming both here is what turns the gate on.
@@ -562,9 +556,7 @@ def main():
     build_instructions(wb)
     build_settings(wb)
     for name in RECIPES:
-        build_recipe(wb, name,
-                     data=TERIYAKI if name == "Teriyaki" else None,
-                     example=(name != "Teriyaki"))
+        build_recipe(wb, name, data=rows_for(name), example=False)
     build_summary(wb)
     ing = build_ingredients(wb)
 

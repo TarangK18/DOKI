@@ -136,11 +136,11 @@ def main():
     check("all eight products are listed", len(buttons) == 8)
     check("the vinegar bath is one of them",
           any("Vinegar Bath" in b.text() for b in buttons))
-    defined = [b for b in buttons if b.isEnabled()]
-    check("recipes with no ingredients are shown but not selectable",
-          len(defined) == 2)
-    check("and the screen says why they are greyed out",
-          "no ingredients entered yet" in prod.note.text())
+    check("every shipped recipe is now filled in and selectable",
+          all(b.isEnabled() for b in buttons))
+    check("so there is no greyed-out note to show", prod.note.text() == "")
+    check("the meat shows on the products that name one",
+          any("Country chicken" in b.text() for b in buttons))
     check("no base-meat screen remains in the flow", "BASE" not in win.SCREENS)
     shot(win, "19-products.png")
 
@@ -225,6 +225,8 @@ def main():
                 pump(app, 0.2)
                 check("an under-target entry keeps CONFIRM locked",
                       not man.confirm_btn.isEnabled() and "under" in man.guide.text())
+                check("and the bar shows it short of the band",
+                      man.bar.tone == "under" and man.bar.added < man.bar.target)
                 man.pad.clear()
             # tip it in, then key the bench-scale reading
             sim.add(target)
@@ -235,6 +237,10 @@ def main():
             if check_once:
                 check("an in-tolerance entry arms CONFIRM",
                       man.confirm_btn.isEnabled())
+                check("the bench screen shows the same tolerance bar",
+                      abs(man.bar.added - target) < 0.5
+                      and abs(man.bar.target - target) < 1e-6
+                      and man.bar.tone == "ok")
                 check("the floor scale reports what it witnessed",
                       "has seen" in man.witness.text()
                       or "Too small" in man.witness.text())
@@ -396,11 +402,12 @@ def main():
     man.pad.clear()
 
     # And the honest case: too small for the floor scale to judge at all.
-    win.st.steps = [PStep("Bhut jholokia", 0.01, 3.0, scale=SMALL)]
+    # At a 1 g floor scale only a sub-2 g addition is beyond witnessing.
+    win.st.steps = [PStep("Bhut jholokia", 0.01, 1.0, scale=SMALL)]
     win.show_screen("MANUAL")
     pump(app, 0.5)
     check("a tiny ingredient admits it cannot be cross-checked",
-          not cfg.can_witness(3.0) and "unverified" in man.witness.text())
+          not cfg.can_witness(1.0) and "unverified" in man.witness.text())
 
     # ------------------------------- recipe the scale cannot actually weigh
     from panel import Step

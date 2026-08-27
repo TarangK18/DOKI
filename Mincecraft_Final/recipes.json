@@ -7,10 +7,11 @@
   "scales": {
     "main": {
       "name": "Floor scale",
-      "division_g": 5,
+      "division_g": 1,
       "capacity_g": 50000,
       "port": "/dev/ttyUSB0",
-      "connected": true
+      "connected": true,
+      "_note": "Reads and errs to 1 g, confirmed by Tarang and consistent with the RS232 frame, which carries three decimals of a kilogram."
     },
     "small": {
       "name": "Bench scale",
@@ -52,15 +53,15 @@
       "meat": null,
       "ingredients": [
         [
-          "Teriyaki sauce",
+          "teriyaki sauce",
           7.3
         ],
         [
-          "Soy sauce",
+          "soy sauce",
           4.64
         ],
         [
-          "Honey",
+          "honey",
           4.2
         ],
         [
@@ -72,44 +73,48 @@
           2.54
         ],
         [
-          "Jaggery powder",
-          2.32
-        ],
-        [
-          "Sea salt",
-          0.75
-        ],
-        [
-          "Sesame seed",
-          0.45
-        ],
-        [
-          "Verdad",
+          "verdad",
           0.2
         ],
         [
-          "Onion powder",
-          0.14
+          "jaggery powder",
+          2.32
         ],
         [
-          "Chilli flake",
-          0.13
+          "sea salt",
+          0.75
         ],
         [
-          "Black pepper",
-          0.11
+          "seasame seed",
+          0.45
         ],
         [
           "Yeast extract",
           0.1
         ],
         [
-          "Garlic powder",
+          "black pepper",
+          0.11
+        ],
+        [
+          "Onion powder",
+          0.14
+        ],
+        [
+          "chilli flake",
+          0.13
+        ],
+        [
+          "garlic powder",
           0.06
         ],
         [
-          "Bhut jholokia",
+          "bhut jholokia",
           0.025
+        ],
+        [
+          "liquid smoke",
+          0.0
         ]
       ]
     },
@@ -117,43 +122,375 @@
       "id": "gochujangh_jerky",
       "name": "Gochujangh Jerky",
       "meat": null,
-      "ingredients": [],
-      "draft": true
+      "ingredients": [
+        [
+          "soy sauce",
+          12.75
+        ],
+        [
+          "gochujang paste",
+          10.0
+        ],
+        [
+          "jaggery powder",
+          4.0
+        ],
+        [
+          "onion powder",
+          2.0
+        ],
+        [
+          "Verdad",
+          0.2
+        ],
+        [
+          "garlic powder",
+          0.8
+        ],
+        [
+          "chilli flakes powder",
+          0.6
+        ],
+        [
+          "White vinegar",
+          0.6
+        ],
+        [
+          "sesame seeds",
+          0.5
+        ],
+        [
+          "Yeast Extract",
+          0.1
+        ],
+        [
+          "bhut jholokia powder",
+          0.08
+        ]
+      ]
     },
     {
       "id": "pepper_jerky",
       "name": "Pepper Jerky",
       "meat": null,
-      "ingredients": [],
-      "draft": true
+      "ingredients": [
+        [
+          "onion powder",
+          0.1228
+        ],
+        [
+          "garlic powder",
+          0.2148
+        ],
+        [
+          "black pepper",
+          1.4108
+        ],
+        [
+          "jaggery powder",
+          4.5286
+        ],
+        [
+          "soy sauce",
+          16.1344
+        ],
+        [
+          "paprika",
+          0.6145
+        ],
+        [
+          "yeast extract",
+          0.1
+        ],
+        [
+          "Verdad N6",
+          0.2
+        ],
+        [
+          "liquid smoke",
+          0.0
+        ]
+      ]
     },
     {
       "id": "karnatka_nati_jerky",
       "name": "Karnatka Nati Jerky",
       "meat": "Country chicken",
-      "ingredients": [],
-      "draft": true
+      "ingredients": [
+        [
+          "coconut milk",
+          18.0
+        ],
+        [
+          "curry leaf powder",
+          0.095
+        ],
+        [
+          "fennel powder",
+          1.2
+        ],
+        [
+          "black pepper",
+          0.72
+        ],
+        [
+          "onion powder",
+          3.6
+        ],
+        [
+          "ginger powder",
+          1.2
+        ],
+        [
+          "garlic powder",
+          2.4
+        ],
+        [
+          "soya sauce",
+          20.19
+        ],
+        [
+          "green chilli powder",
+          1.5
+        ],
+        [
+          "vedad",
+          0.2
+        ],
+        [
+          "yeast extract",
+          0.1
+        ],
+        [
+          "tamarind paste",
+          4.5
+        ],
+        [
+          "olive oil",
+          3.887
+        ],
+        [
+          "dessicated coconut",
+          0.6802
+        ],
+        [
+          "curry leaf powder (2nd addition)",
+          0.1037
+        ]
+      ]
     },
     {
       "id": "kerala_fry_jerky",
       "name": "Kerala fry Jerky",
       "meat": null,
-      "ingredients": [],
-      "draft": true
+      "ingredients": [
+        [
+          "coconut milk",
+          15.0575
+        ],
+        [
+          "curry leaf powder",
+          0.1839
+        ],
+        [
+          "cumin powder",
+          0.5
+        ],
+        [
+          "fennel powder",
+          1.0
+        ],
+        [
+          "black pepper",
+          0.3
+        ],
+        [
+          "garam masala",
+          0.4138
+        ],
+        [
+          "corriender powder",
+          0.4138
+        ],
+        [
+          "onion powder",
+          3.0
+        ],
+        [
+          "ginger powder",
+          1.0
+        ],
+        [
+          "garlic powder",
+          2.0
+        ],
+        [
+          "soya sauce",
+          16.8582
+        ],
+        [
+          "green chilli powder",
+          1.0
+        ],
+        [
+          "Verdad N6",
+          0.2
+        ],
+        [
+          "yeast extract",
+          0.1
+        ],
+        [
+          "olive oil",
+          3.887
+        ],
+        [
+          "dessicated coconut",
+          0.6802
+        ],
+        [
+          "curry leaf powder (2nd addition)",
+          0.1037
+        ]
+      ]
     },
     {
       "id": "mughlai_jerky",
       "name": "Mughlai Jerky",
       "meat": null,
-      "ingredients": [],
-      "draft": true
+      "ingredients": [
+        [
+          "Curd",
+          20.0
+        ],
+        [
+          "Cashew",
+          7.5
+        ],
+        [
+          "Honey",
+          2.0
+        ],
+        [
+          "Salt",
+          1.5
+        ],
+        [
+          "Kasuri meethi",
+          0.2
+        ],
+        [
+          "Cardamom",
+          0.16
+        ],
+        [
+          "Garam Masala",
+          0.2
+        ],
+        [
+          "Jeera Poawder",
+          0.2
+        ],
+        [
+          "Jaggery Powder",
+          1.5
+        ],
+        [
+          "Green Chili",
+          0.25
+        ],
+        [
+          "Yeast Extract",
+          0.1
+        ],
+        [
+          "Verdad",
+          0.2
+        ]
+      ]
     },
     {
       "id": "masala_jerky",
       "name": "Masala Jerky",
-      "meat": null,
-      "ingredients": [],
-      "draft": true
+      "meat": "Chicken",
+      "ingredients": [
+        [
+          "ONION POWDER",
+          0.4277
+        ],
+        [
+          "GARLIC POWDER",
+          0.3996
+        ],
+        [
+          "CRACKED BLACK PEPPER",
+          0.2535
+        ],
+        [
+          "JAGGERY POWDER",
+          4.3612
+        ],
+        [
+          "DARK SOY SAUCE",
+          8.0743
+        ],
+        [
+          "TERIYAKI SAUCE",
+          4.2055
+        ],
+        [
+          "BALSAMIC VINEGAR",
+          4.5755
+        ],
+        [
+          "PINEAPPLE JUICE",
+          7.8251
+        ],
+        [
+          "BHUT JHOLOKIA POWDER",
+          0.06
+        ],
+        [
+          "verdad",
+          0.2
+        ],
+        [
+          "Yeast extract",
+          0.1
+        ],
+        [
+          "SALT",
+          0.455
+        ],
+        [
+          "CHILLI FLAKES",
+          0.216
+        ],
+        [
+          "CRACKED BLACK PEPPER (2nd addition)",
+          0.23
+        ],
+        [
+          "THYME",
+          0.132
+        ],
+        [
+          "OREGENO FLAKES",
+          0.12
+        ],
+        [
+          "RAW GARLIC",
+          1.4
+        ],
+        [
+          "RAW GINGER",
+          2.0
+        ],
+        [
+          "OLIVE OIL",
+          6.65
+        ]
+      ]
     }
   ],
   "water": {
@@ -164,5 +501,5 @@
     "day_start_hour": 0,
     "_day_start_note": "0 = plain calendar day. Set to e.g. 6 if a night shift runs past midnight, so the lock lands between shifts instead of mid-shift."
   },
-  "_products_note": "meat: which animal this product is made from, so the operator is not asked. null means not decided yet — the batch records it as unspecified. draft: true means the recipe has no ingredients yet; the panel shows it but will not start a batch on it. Fill them in DOKI-Recipes.xlsx and run xlsx_to_recipes.py. Teriyaki omits liquid smoke, which the source CSV lists with a quantity of zero."
+  "_products_note": "Quantities came from Tarang's sheets as GRAMS PER 10 KG OF MEAT and are stored here as a percentage of the meat weight (730 g per 10 kg = 7.3 %). Ingredient names are verbatim from those sheets, spellings included; where one was listed twice it is two weighings at different stages, so the second carries a suffix. An ingredient at 0 % is listed for reference and is not weighed. meat: null means not decided yet."
 }
